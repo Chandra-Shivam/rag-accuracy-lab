@@ -1,0 +1,4 @@
+langchain-community==0.4.2
+langchain-core==1.7.2
+pypdf==6.21.3
+pytest==9.2.0
