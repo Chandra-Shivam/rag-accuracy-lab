@@ -15,6 +15,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 
 ## Files
 
+- **STATUS.md**: what's done, where to resume, new-machine setup. **.claude/**: project settings.
 - **corpus/SOURCES.md**: list of the 20 IRS PDFs (URL, revision, page count). PDFs aren't in git.
 - **corpus/download.py**: rebuilds `corpus/` from SOURCES.md and warns if a page count changed.
 - **evals/golden.jsonl**: the exam: question, correct answer, type, gold pages.
