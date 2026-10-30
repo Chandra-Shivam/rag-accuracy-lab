@@ -10,7 +10,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 | chunk | `rag/ingest.py` `chunk_pages()` | pages → 1,000-char slices, metadata + `chunk_index`, id `source:page:index` |
 | embed | `rag/embed.py` `CachedBgeEmbeddings` | text → 384-number vector (bge-small), cached on disk |
 | store | `rag/store.py` `get_store()`, `upsert_chunks()` | chunks → vectors + metadata in Pinecone index `irs-bge-small-en-v1-5` |
-| answer | _later_ | question → top-k chunks → Gemini → answer + sources |
+| answer | `rag/answer.py` `answer()` | question → top-5 chunks → `gemini-3.5-flash-lite` (temp 0) → `{answer, sources}` (sources in rank order) |
 | measure | `evals/` | golden set → metrics → EXPERIMENTS.md row |
 
 ## Files
@@ -23,6 +23,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **rag/ingest.py**: `load_pages()` loads and converts page numbers (+1, the only place this happens); `chunk_pages()` slices pages into chunks.
 - **rag/embed.py**: `embed_documents()` embeds only texts that aren't in the cache; `embed_query()` adds the bge prefix and isn't cached.
 - **rag/store.py**: creates the Pinecone index if missing (384 dims, cosine, free plan = AWS us-east-1) and upserts chunks by fixed id. Key comes from `.env`.
+- **rag/answer.py**: `answer(question)` retrieves top-k, sends a naive prompt to Gemini, returns the answer and the retrieved pages. Same function for every version.
 - **tests/test_ingest.py**: pins the 1-based page rule on `tests/fixtures/fw4s.pdf` (2 pages).
 - **data/cache/embeddings/**: cached vectors (JSONL, git-ignored, can be rebuilt).
 
@@ -48,6 +49,10 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **Re-indexing in production?** Track a content hash per chunk; re-embed only changed chunks; delete removed ones (LangChain Indexing API). The vector DB is the main store.
 - **Why Pinecone, not Chroma?** At our scale Chroma would work just as well. Pinecone is managed (no ops, easy Docker deploy, namespaces, metadata filters) and is a common choice for clients. The DB choice affects latency and ops, barely accuracy.
 - **When are chunks embedded in store.py?** Not in `get_store()` (that only builds the embedder). `add_documents()` calls our `embed_documents()` in batches, then upserts. Queries call `embed_query()` inside `similarity_search()`.
+- **Chunk vs token?** Chunk = the 1,000-char piece we cut (one vector, one Pinecone record). Token = the word-sized piece the model splits a chunk into (~231 per chunk).
+- **Why do 1,000 chars give 230 or 680 tokens?** Common words = 1 token (~6 chars); every `.` `,` and number piece is its own token (~1.5 chars). Dotted tables are token-heavy. Size chunks in tokens.
+- **How to check the 512-token limit?** Count with the model's own tokenizer (`AutoTokenizer.from_pretrained(MODEL)`), not characters. Median chunk = 231 tokens, but 57 chunks are over 512 (max 681): dotted table rows like `8,000 to 8,999 ..... 2,600`. bge silently cuts off the rest.
+- **Day 2 hand check (5 questions):** q15 got the right pages but the wrong chunk (answer in p15t `7:0`, retrieved `7:1`), so page-level hit@k can be a false hit. q01 missed its gold page but answered correctly from fw4 p3. q39 hallucinated instead of abstaining.
 - **Why does re-running store.py not duplicate?** Upsert = insert or overwrite by id. Fixed ids → 2 runs still give 1,714 vectors. Random ids would give 3,428 (duplicates in top-k).
 - **Where are embeddings stored?** Only in the cache file for now; the return value lives in memory. Pinecone will be the permanent store. Query vectors aren't stored.
 - **Golden set from an LLM?** Fine if each answer has a page quote checked in code, unanswerable questions are proven absent, and a human spot-checks some.
