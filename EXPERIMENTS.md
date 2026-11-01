@@ -4,7 +4,14 @@ Every change is measured on the same golden set. One change per row.
 
 | Version | Change | Hit@5 | MRR | Correct | Faithful | Abstain acc. | Latency (s) | Tokens/q | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| v0 | Naive baseline | | | | | | | | |
+| v0 | Naive baseline | 0.789 | 0.607 | | | | | | Retrieval only so far; n=38 answerable |
+
+## Day 3 prediction for v0 retrieval (written before the first real run)
+
+Hit@5 57%, MRR 0.3, lowest type: needs_table.
+
+Result: Hit@5 78.9% (30/38), MRR 0.607. Lowest hit@5: single_fact (0.714). Lowest MRR: needs_table (0.510).
+Misses: q01, q02, q03, q08, q20, q22, q27, q36. Causes not labelled yet. Each type has only 8-14 questions, so one question moves its hit@5 by 7-12 points.
 
 ## Day 1 predictions for v0 (written before any code)
 

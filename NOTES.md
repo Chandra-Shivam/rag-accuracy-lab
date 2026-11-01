@@ -21,10 +21,13 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **evals/golden.jsonl**: the exam: question, correct answer, type, gold pages.
 - **evals/golden_evidence.jsonl**: the proof: an exact quote from each gold page; `absent` words for unanswerable questions.
 - **evals/validate_golden.py**: checks the format of golden.jsonl, and that each quote really is on its gold page.
+- **evals/metrics.py**: `is_hit()` and `reciprocal_rank()`, pure functions pinned by **tests/test_metrics.py**.
+- **evals/run.py**: runs the golden set through `retrieve()`, prints hit@5 and MRR per question, per type and overall. No Gemini calls yet.
+- **pytest.ini**: puts the project root on the import path so plain `pytest` finds `rag` and `evals`.
 - **rag/ingest.py**: `load_pages()` loads and converts page numbers (+1, the only place this happens); `chunk_pages()` slices pages into chunks.
 - **rag/embed.py**: `embed_documents()` embeds only texts that aren't in the cache; `embed_query()` adds the bge prefix and isn't cached.
 - **rag/store.py**: creates the Pinecone index if missing (384 dims, cosine, free plan = AWS us-east-1) and upserts chunks by fixed id. Key comes from `.env`.
-- **rag/answer.py**: `answer(question)` retrieves top-k, sends a naive prompt to Gemini, returns the answer and the retrieved pages. Same function for every version.
+- **rag/answer.py**: `retrieve(question)` does top-k search only (no LLM). `answer(question)` calls it, sends a naive prompt to Gemini, returns the answer and the retrieved pages. Same function for every version.
 - **tests/test_ingest.py**: pins the 1-based page rule on `tests/fixtures/fw4s.pdf` (2 pages).
 - **data/cache/embeddings/**: cached vectors (JSONL, git-ignored, can be rebuilt).
 
@@ -61,4 +64,8 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **Near-miss?** An unanswerable question with lookalike content in the corpus (e.g. employer penalties for an individual penalty question). It tempts the model into answering.
 - **Unanswerable vs underspecified?** Unanswerable: the documents don't contain it, so abstain. Underspecified: the user didn't give enough, so ask a clarifying question.
 - **Why unanswerable questions at all?** Hallucination means answering when you shouldn't; only these questions measure that.
+- **MRR full form?** Mean Reciprocal Rank: per question 1 / rank of the first gold page (rank 1 → 1.0, rank 3 → 0.33, miss → 0), then average over questions.
+- **Why retrieval metrics first on Day 3?** They need no LLM, so no quota and no judge. If the right page isn't retrieved, the model can't answer from it, so this separates retrieval failures from generation failures.
+- **Why tests/test_metrics.py?** A buggy metric still prints a believable number, and every experiment is compared on it. The test feeds small made-up inputs with known answers (no Pinecone) and fails if the definition breaks.
+- **What is pytest?** Python's standard test runner (like `dotnet test` with xUnit): it finds `test_*` functions in `tests/`, runs them, reports pass/fail. It doesn't cover `answer()`, so that was checked with one real Gemini call after the refactor.
 - **Failure stages:** ingestion (bad text/tables), retrieval (gold page not in top-k), generation (wrong answer or no abstention). Label every failure by stage.

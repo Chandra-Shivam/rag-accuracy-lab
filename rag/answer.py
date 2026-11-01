@@ -23,28 +23,41 @@ Question: {question}"""
 _store = _llm = None
 
 
-def _clients():
+def _get_store():
     # Built once: loading bge and connecting to Pinecone takes seconds, a question shouldn't.
-    global _store, _llm
+    global _store
     if _store is None:
         load_dotenv()
         _store = get_store()
+    return _store
+
+
+def _get_llm():
+    # Separate from the store so retrieval-only evals don't need a Gemini key or quota.
+    global _llm
+    if _llm is None:
+        load_dotenv()
         # temperature 0 so re-running the eval gives (nearly) the same answers.
         _llm = ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0)
-    return _store, _llm
+    return _llm
 
 
-def answer(question, k=K):
-    store, llm = _clients()
-    matches = store.similarity_search_with_score(question, k=k)
+def retrieve(question, k=K):
+    """Top-k search only, no LLM. Returns (context text for the prompt, sources)."""
+    matches = _get_store().similarity_search_with_score(question, k=k)
     context = "\n\n---\n\n".join(doc.page_content for doc, _ in matches)
-    reply = llm.invoke(PROMPT.format(context=context, question=question))
     # sources = retrieved chunks in rank order (rank 1 first); hit@k and MRR are computed from these.
     sources = [
         {"source": doc.metadata["source"], "page": int(doc.metadata["page"]),
          "chunk_index": int(doc.metadata["chunk_index"]), "score": round(score, 4)}
         for doc, score in matches
     ]
+    return context, sources
+
+
+def answer(question, k=K):
+    context, sources = retrieve(question, k=k)
+    reply = _get_llm().invoke(PROMPT.format(context=context, question=question))
     return {"answer": reply.text, "sources": sources}
 
 
