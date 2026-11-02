@@ -21,8 +21,8 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **evals/golden.jsonl**: the exam: question, correct answer, type, gold pages.
 - **evals/golden_evidence.jsonl**: the proof: an exact quote from each gold page; `absent` words for unanswerable questions.
 - **evals/validate_golden.py**: checks the format of golden.jsonl, and that each quote really is on its gold page.
-- **evals/metrics.py**: `is_hit()` and `reciprocal_rank()`, pure functions pinned by **tests/test_metrics.py**.
-- **evals/run.py**: runs the golden set through `retrieve()`, prints hit@5 and MRR per question, per type and overall. No Gemini calls yet.
+- **evals/metrics.py**: `is_hit()`, `reciprocal_rank()` and `summarize()`, pure functions pinned by **tests/test_metrics.py**.
+- **evals/run.py**: runs the golden set through `answer()` and the judges, saves each question to `evals/results/<run>.jsonl`, continues a stopped run, prints metrics per type and overall. `--retrieval-only` needs no Gemini.
 - **evals/judge.py**: `judge_correctness()` and `judge_faithfulness()` return structured verdicts. `python -m evals.judge correctness|faithfulness` checks one against its hand labels, 3 runs each. `prepare-faithfulness` creates the examples.
 - **evals/judge_calibration.jsonl**: 10 real v0 answers with hand labels (correctness).
 - **evals/abstention_calibration.jsonl**: saved v0 answers with hand labels (abstained/answered).
@@ -88,4 +88,15 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **What does the abstention judge see and decide?** It sees the question and reply, not the context, and decides whether the reply did decline. Whether it should have declined comes from the golden set (`type: unanswerable`).
 - **How are judges run in production?** Usually one judge per metric. Offline: all of them on a golden set before release. Live: code checks first, then a cheap judge on a sample in the background, with humans reviewing flagged cases. Live traffic has no golden answers, so correctness stays mostly offline.
 - **Do the judges need the golden.jsonl path?** No. `judge_*()` functions take text, not files. `calibrate()` reads calibration files; `evals/run.py` reads golden.jsonl and calls the same functions.
+- **What does latency measure?** Retrieval + Gemini answer only. Judges, one-time loading and the wait for free-tier quota are excluded, since users wouldn't wait for those. So real latency under load may differ.
+- **`expected` and `correct` in results?** `expected` is the golden answer from golden.jsonl, written on Day 1. `correct` is true when the correctness judge says the system's `answer` matches it. Unanswerable rows have `expected: null` and no `correct`.
+- **v0 run 1 findings:** all 8 wrong answers trace back to retrieval (6 misses, 2 page-level false hits), so retrieval looks like the first thing to fix. q44's unanswerable label looks wrong: the corpus says digital assets are not accepted.
+- **How are the per-type numbers calculated?** `summarize()` averages over that type's rows, using only the rows that have the metric. Each true counts as 1 and each false as 0, so comparison Correct 0.750 = 6 of 8.
+- **Who decides "unanswerable"?** We do, in golden.jsonl, before any run. The judge only says whether the reply declined. Abstain acc. combines the two.
 - **Failure stages:** ingestion (bad text/tables), retrieval (gold page not in top-k), generation (wrong answer or no abstention). Label every failure by stage.
+- **v0 noise check:** equal totals can hide flips. Correct stayed 0.795, but q02 and q30 swapped. Compare runs per question: Correct noise is about 5 points, Faithful about 8. Retrieval is repeatable, so it has no run-to-run noise. Fix plan: hand-check the flips, then re-run the judge on saved answers to see whether the judge or the answer is causing them. Review copy of the 6 flips: `data/cache/flip_review.md` (git-ignored).
+- **`evals/stability.py`:** judges the 6 flipped questions' saved answers 3 times each (36 calls). The answer text is fixed, so a changed verdict is judge noise.
+- **Stability result:** 9/12 stable. Correctness 4/4, faithfulness 5/8, so faithfulness is the noisier judge. Stable does not mean right.
+- **Correctness rule 4:** numbers and dates must be exact, including the year when the expected answer gives one. Two "year optional" wordings failed on q02, so q02 counts as wrong unless the answer gives 2026. Check it again on Day 4.
+- **Gemini free-tier limits:** 15 requests per minute and 500 per day per model. A full eval is about 150 calls.
+- **q30 golden fix:** the answer now lists all three fax cases from iss4.pdf p2. The old one left out 855-641-6935.

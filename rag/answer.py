@@ -5,6 +5,7 @@ Usage: python -m rag.answer "your question"
 Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
 """
 import sys
+import time
 
 from dotenv import load_dotenv
 from langchain_core.rate_limiters import InMemoryRateLimiter
@@ -42,7 +43,7 @@ def _get_llm():
     if _llm is None:
         load_dotenv()
         # No temperature: this model uses fixed sampling and ignores it, so answers may vary between runs.
-        _llm = ChatGoogleGenerativeAI(model=LLM_MODEL, rate_limiter=RATE_LIMITER)
+        _llm = ChatGoogleGenerativeAI(model=LLM_MODEL)
     return _llm
 
 
@@ -60,10 +61,18 @@ def retrieve(question, k=K):
 
 
 def answer(question, k=K):
+    # Set-up and the wait for quota happen before the clock starts: latency should measure
+    # the system, not one-time loading or our free-tier limit.
+    _get_store()
+    llm = _get_llm()
+    RATE_LIMITER.acquire()
+    start = time.perf_counter()
     context, sources = retrieve(question, k=k)
-    reply = _get_llm().invoke(PROMPT.format(context=context, question=question))
+    reply = llm.invoke(PROMPT.format(context=context, question=question))
+    latency = time.perf_counter() - start
     # context = the exact text the model saw; the faithfulness judge checks the answer against it.
-    return {"answer": reply.text, "sources": sources, "context": context}
+    return {"answer": reply.text, "sources": sources, "context": context,
+            "latency": round(latency, 3), "tokens": reply.usage_metadata["total_tokens"]}
 
 
 if __name__ == "__main__":

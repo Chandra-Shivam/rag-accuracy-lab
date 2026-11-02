@@ -27,7 +27,7 @@
 {"id": "q27", "evidence": [{"source": "p1779.pdf", "page": 2, "quote": "Your employer must withhold income tax and your portion of social security and Medicare taxes."}, {"source": "p1779.pdf", "page": 2, "quote": "Your employer must give you a Form W-2, Wage and Tax Statement, showing the amount of taxes withheld from your pay."}]}
 {"id": "q28", "evidence": [{"source": "fw4.pdf", "page": 2, "quote": "The box must also be checked on the Form W-4 for the other job. If the box is checked, the standard deduction and tax brackets will be cut in half for each job to calculate withholding."}]}
 {"id": "q29", "evidence": [{"source": "p15.pdf", "page": 10, "quote": "The penalty is $25 or 2% of the payment, whichever is more. However, the penalty on dishonored payments of $24.99 or less is an amount equal to the payment."}]}
-{"id": "q30", "evidence": [{"source": "iss4.pdf", "page": 2, "quote": "855-215-1627 (if within the United States) or 304-707-9471 (if outside the United States)"}]}
+{"id": "q30", "evidence": [{"source": "iss4.pdf", "page": 2, "quote": "855-215-1627 (if within the United States) or 304-707-9471 (if outside the United States)"}, {"source": "iss4.pdf", "page": 2, "quote": "fax the form to 855-641-6935"}]}
 {"id": "q31", "evidence": [{"source": "fw4r.pdf", "page": 1, "quote": "For nonperiodic payments, the default withholding rate is 10%. You can choose to have a different rate by entering a rate between 0% and 100% on line 2."}, {"source": "fw4r.pdf", "page": 1, "quote": "For an eligible rollover distribution, the default withholding rate is 20%. You can choose a rate greater than 20% by entering the rate on line 2. You may not choose a rate less than 20%."}]}
 {"id": "q32", "evidence": [{"source": "fw4v.pdf", "page": 1, "quote": "For unemployment compensation, the payer is permitted to withhold 10% from each payment. No other percentage or amount is allowed."}, {"source": "fw4v.pdf", "page": 1, "quote": "you may choose to have the payer withhold federal income tax of 7%, 10%, 12%, or 22% from each payment"}]}
 {"id": "q33", "evidence": [{"source": "p1779.pdf", "page": 2, "quote": "Your employer must withhold income tax and your portion of social security and Medicare taxes."}, {"source": "p1779.pdf", "page": 2, "quote": "The business does not withhold taxes from your pay."}]}
@@ -41,7 +41,7 @@
 {"id": "q41", "absent": ["educator expenses up to", "educator expense deduction"], "near_miss": "fw4.pdf:4 mentions educator expenses without an amount"}
 {"id": "q42", "absent": ["Paris", "lodging rate"], "near_miss": "p516.pdf covers allowances for government employees abroad"}
 {"id": "q43", "absent": ["full retirement age"]}
-{"id": "q44", "absent": ["bitcoin", "cryptocurrency"], "near_miss": "p926.pdf:2 lists a digital wallet as a payment option; several pages mention digital assets"}
+{"id": "q44", "evidence": [{"source": "p509.pdf", "page": 13, "quote": "Payments of U.S. tax must be remitted to the IRS in U.S. dollars. Digital assets are not accepted."}]}
 {"id": "q45", "absent": ["Roth IRA contribution"]}
 {"id": "q46", "absent": ["elective deferral limit", "$24,500"]}
 {"id": "q47", "absent": ["cost-of-living adjustment"]}

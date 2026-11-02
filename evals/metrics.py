@@ -1,7 +1,7 @@
-"""Retrieval metrics, as fixed in PLAN.md (Day 3). Pure functions: no Pinecone, no LLM.
+"""Metrics, as fixed in PLAN.md (Day 3). Pure functions: no Pinecone, no LLM.
 
 gold = the golden set's list of {source, page}; sources = retrieved chunks in rank order.
-Unanswerable questions (gold = []) must be filtered out by the caller.
+Unanswerable questions (gold = []) must be filtered out by the caller of is_hit and reciprocal_rank.
 """
 
 
@@ -21,3 +21,17 @@ def reciprocal_rank(gold, sources):
         if _page(s) in gold_pages:
             return 1 / rank
     return 0.0
+
+
+def summarize(rows):
+    """Averages each metric over the rows that have it; None if no row has it.
+
+    Each metric lives only on the rows it applies to: an unanswerable row has "abstained",
+    but no "hit", "rr" or "correct". So every metric gets the right denominator automatically.
+    """
+    return {key: _mean([r[key] for r in rows if key in r])
+            for key in ("hit", "rr", "correct", "faithful", "abstained", "latency", "tokens")}
+
+
+def _mean(values):
+    return sum(values) / len(values) if values else None

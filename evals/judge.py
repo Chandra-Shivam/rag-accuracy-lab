@@ -36,7 +36,7 @@ RULES = (
     "details in the expected answer that the question did not ask for are optional.\n"
     "2. Extra text beyond the expected answer is fine.\n"
     "3. If the answer contains the right fact but also a wrong one, it is incorrect.\n"
-    "4. Numbers and dates must be exact.\n"
+    "4. Numbers and dates must be exact, including the year when the expected answer gives one.\n"
     "5. When unsure use a stricter Verdict (incorrect)"
 )
 
