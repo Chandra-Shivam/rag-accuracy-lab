@@ -8,7 +8,7 @@ Where the project is and where to resume. Update at the end of every session.
 - **Day 2 hand check** (q01, q15, q24, q31, q39): results in NOTES.md. Key findings: page-level hit@k can be a false hit (q15 wrong chunk on the right page); q39 hallucinated instead of abstaining; 57 chunks are over bge's 512-token limit (dotted tables).
 
 ## Resume here
-**Day 3 in progress:** v0 retrieval is measured: hit@5 0.789, MRR 0.607 (EXPERIMENTS.md). Next: add generation metrics (see PLAN.md Day 3) and leave the real design decisions (how correctness and faithfulness are judged) to the user as TODO(human). Ask for a prediction before the full 50-question run. Then latency and tokens, LangSmith dataset, and error analysis including the 8 retrieval misses.
+**Day 3 in progress:** v0 retrieval is measured: hit@5 0.789, MRR 0.607 (EXPERIMENTS.md). Correctness judge calibrated: 10/10 agreement and stability on hand labels (same examples used to discuss the rules). Faithfulness judge written, not run yet (one verdict per answer: supported/not_supported). Faithfulness judge accepted with a known limitation (see EXPERIMENTS.md). Abstention judge calibrated: 8/8 agreement, 8/8 stable. All three judges are ready. Next: add the judges, latency and tokens to `evals/run.py`. After the full run, hand-check a sample of `supported` verdicts. Then add the judges and abstention to `evals/run.py` (see PLAN.md Day 3). Ask for a prediction before the full 50-question run. Then latency and tokens, LangSmith dataset, and error analysis including the 8 retrieval misses.
 
 ## Known follow-ups
 - Day 4 candidates: chunks over 512 tokens, proof-mark junk on page 1, duplicate boilerplate chunks, recursive splitter and overlap (separate experiments).

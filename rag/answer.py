@@ -7,11 +7,15 @@ Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
 import sys
 
 from dotenv import load_dotenv
+from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from rag.store import get_store
 
 LLM_MODEL = "gemini-3.5-flash-lite"
+# Free tier allows 15 requests per minute per model; stay under it at 12.
+# Shared with the judges, because they use the same model and the same quota.
+RATE_LIMITER = InMemoryRateLimiter(requests_per_second=0.2)
 K = 5
 PROMPT = """Answer the question using the context below.
 
@@ -37,8 +41,8 @@ def _get_llm():
     global _llm
     if _llm is None:
         load_dotenv()
-        # temperature 0 so re-running the eval gives (nearly) the same answers.
-        _llm = ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0)
+        # No temperature: this model uses fixed sampling and ignores it, so answers may vary between runs.
+        _llm = ChatGoogleGenerativeAI(model=LLM_MODEL, rate_limiter=RATE_LIMITER)
     return _llm
 
 
@@ -58,7 +62,8 @@ def retrieve(question, k=K):
 def answer(question, k=K):
     context, sources = retrieve(question, k=k)
     reply = _get_llm().invoke(PROMPT.format(context=context, question=question))
-    return {"answer": reply.text, "sources": sources}
+    # context = the exact text the model saw; the faithfulness judge checks the answer against it.
+    return {"answer": reply.text, "sources": sources, "context": context}
 
 
 if __name__ == "__main__":

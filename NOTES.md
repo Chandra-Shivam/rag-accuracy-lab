@@ -10,7 +10,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 | chunk | `rag/ingest.py` `chunk_pages()` | pages → 1,000-char slices, metadata + `chunk_index`, id `source:page:index` |
 | embed | `rag/embed.py` `CachedBgeEmbeddings` | text → 384-number vector (bge-small), cached on disk |
 | store | `rag/store.py` `get_store()`, `upsert_chunks()` | chunks → vectors + metadata in Pinecone index `irs-bge-small-en-v1-5` |
-| answer | `rag/answer.py` `answer()` | question → top-5 chunks → `gemini-3.5-flash-lite` (temp 0) → `{answer, sources}` (sources in rank order) |
+| answer | `rag/answer.py` `answer()` | question → top-5 chunks → `gemini-3.5-flash-lite` (fixed sampling) → `{answer, sources}` (sources in rank order) |
 | measure | `evals/` | golden set → metrics → EXPERIMENTS.md row |
 
 ## Files
@@ -23,6 +23,10 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **evals/validate_golden.py**: checks the format of golden.jsonl, and that each quote really is on its gold page.
 - **evals/metrics.py**: `is_hit()` and `reciprocal_rank()`, pure functions pinned by **tests/test_metrics.py**.
 - **evals/run.py**: runs the golden set through `retrieve()`, prints hit@5 and MRR per question, per type and overall. No Gemini calls yet.
+- **evals/judge.py**: `judge_correctness()` and `judge_faithfulness()` return structured verdicts. `python -m evals.judge correctness|faithfulness` checks one against its hand labels, 3 runs each. `prepare-faithfulness` creates the examples.
+- **evals/judge_calibration.jsonl**: 10 real v0 answers with hand labels (correctness).
+- **evals/abstention_calibration.jsonl**: saved v0 answers with hand labels (abstained/answered).
+- **evals/faithfulness_calibration.jsonl**: real v0 answers + their context + hand labels (faithfulness), created by `prepare-faithfulness`.
 - **pytest.ini**: puts the project root on the import path so plain `pytest` finds `rag` and `evals`.
 - **rag/ingest.py**: `load_pages()` loads and converts page numbers (+1, the only place this happens); `chunk_pages()` slices pages into chunks.
 - **rag/embed.py**: `embed_documents()` embeds only texts that aren't in the cache; `embed_query()` adds the bge prefix and isn't cached.
@@ -68,4 +72,20 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **Why retrieval metrics first on Day 3?** They need no LLM, so no quota and no judge. If the right page isn't retrieved, the model can't answer from it, so this separates retrieval failures from generation failures.
 - **Why tests/test_metrics.py?** A buggy metric still prints a believable number, and every experiment is compared on it. The test feeds small made-up inputs with known answers (no Pinecone) and fails if the definition breaks.
 - **What is pytest?** Python's standard test runner (like `dotnet test` with xUnit): it finds `test_*` functions in `tests/`, runs them, reports pass/fail. It doesn't cover `answer()`, so that was checked with one real Gemini call after the refactor.
+- **Why `<=` in `is_hit()`?** On Python sets, `<=` means "is a subset of": every gold page must be among the retrieved pages. It isn't a numeric comparison.
+- **Functions in evals/judge.py?** `Verdict` = the required reply shape; `_get_judge()` builds the Gemini client once; `judge_correctness()` grades one answer; `calibrate()` compares the judge with hand labels over 3 runs.
+- **What is a necessary detail for the judge?** Only what the question asks for. Other details in the golden answer are optional (q31: default rates asked, so the 0-100% choice is optional).
+- **Correctness vs faithfulness?** Correctness compares the answer with the golden answer. Faithfulness compares it with the chunks that generated it, with no golden answer and no new DB query, so `answer()` must also return its context.
+- **Calibrating vs using a judge?** Calibrating tests the judge on a small hand-labelled file. Using it scores the system on the golden set. Each judge needs its own calibration file. Faithfulness only needs an answer + its chunks, so it can also run in production.
+- **What does `prepare_faithfulness()` do?** Takes the 8 questions in `FAITHFULNESS_IDS` from golden.jsonl, runs each through `answer()`, and saves question + context + answer with an empty label. The judge doesn't generate answers; it only grades them.
+- **Temperature warning from Gemini?** `gemini-3.5-flash-lite` uses fixed sampling and ignores `temperature`, so we removed the setting. Answers may vary between runs; measure that noise before trusting small metric changes.
+- **Eval noise floor?** How much a score moves when nothing changed. Run the same version twice or more and compare each metric with itself (Correct vs Correct, Faithful vs Faithful), never Correct vs Faithful. A later change smaller than that movement isn't proven to be an improvement.
+- **Is "the context doesn't say" faithful?** Yes, if that is true: faithfulness only asks whether the answer describes the chunks truthfully. It can still fail correctness (q36).
+- **Judge disagrees with a hand label?** Don't assume either is right; check the answer against the context. In the first faithfulness run the judge looked right on q39 and q41, and too lenient on q27.
+- **Abstention, latency, tokens?** Abstention = declining when the documents don't have the answer; measured on unanswerable questions. Latency = seconds per question. Tokens = LLM usage, which drives cost. Accuracy alone can't show whether a change is worth its cost and delay.
+- **How do you stop a RAG system making things up?** Layers: better retrieval, grounding prompt, citations, abstention, code checks on citations, and evals to measure it. No layer removes it fully, so measure and reduce it.
+- **How many LLM judges in production?** No fixed number. Usually 0-1 blocking the reply, 1-3 running in the background on a sample, and the full set offline on the golden set before release. Each judge adds roughly one LLM call per item it checks.
+- **What does the abstention judge see and decide?** It sees the question and reply, not the context, and decides whether the reply did decline. Whether it should have declined comes from the golden set (`type: unanswerable`).
+- **How are judges run in production?** Usually one judge per metric. Offline: all of them on a golden set before release. Live: code checks first, then a cheap judge on a sample in the background, with humans reviewing flagged cases. Live traffic has no golden answers, so correctness stays mostly offline.
+- **Do the judges need the golden.jsonl path?** No. `judge_*()` functions take text, not files. `calibrate()` reads calibration files; `evals/run.py` reads golden.jsonl and calls the same functions.
 - **Failure stages:** ingestion (bad text/tables), retrieval (gold page not in top-k), generation (wrong answer or no abstention). Label every failure by stage.
