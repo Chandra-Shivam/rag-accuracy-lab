@@ -103,5 +103,8 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **v0 baseline:** `evals/results/v0_run3.jsonl` (Correct 0.769, Faithful 0.880). q37 had the right numbers and the wrong conclusion, so generation can also fail when retrieval is right.
 - **v0 error analysis:** of 9 wrong answers, 4 are near-miss retrieval (gold chunk at rank 6 to 20), 2 deep misses, 2 table chunks not retrieved, 1 generation. Near misses suggest trying re-ranking first on Day 4.
 - **Who ranks chunks?** Not the LLM. Embeddings and Pinecone rank them by vector similarity, and the LLM only sees the final top 5. Re-ranking fetches many chunks, re-scores them, and still sends 5 to the LLM.
+- **LangSmith 403:** a new API key fixed it. The old key failed on read and write, so the problem was the key, not the tracing code.
+- **Dataset upload: script or UI?** The UI also works. A script is repeatable, keeps the steps in git, and maps fields the same way each time.
+- **LangSmith scripts:** `evals/langsmith_upload.py` uploads the golden set as dataset `irs-golden-v1`. `evals/langsmith_experiment.py <run>` logs a saved run as an experiment, with no Gemini calls. If a score is missing from the UI, check the column settings; the API showed all 7 were stored.
 - **Gemini free-tier limits:** 15 requests per minute and 500 per day per model. A full eval is about 150 calls.
 - **q30 golden fix:** the answer now lists all three fax cases from iss4.pdf p2. The old one left out 855-641-6935.
