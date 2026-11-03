@@ -10,7 +10,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 | chunk | `rag/ingest.py` `chunk_pages()` | pages → 1,000-char slices, metadata + `chunk_index`, id `source:page:index` |
 | embed | `rag/embed.py` `CachedBgeEmbeddings` | text → 384-number vector (bge-small), cached on disk |
 | store | `rag/store.py` `get_store()`, `upsert_chunks()` | chunks → vectors + metadata in Pinecone index `irs-bge-small-en-v1-5` |
-| answer | `rag/answer.py` `answer()` | question → top-5 chunks → `gemini-3.5-flash-lite` (fixed sampling) → `{answer, sources}` (sources in rank order) |
+| answer | `rag/answer.py` `answer()` | question → 20 candidates → re-rank to top 5 → add neighbouring chunks → `gemini-3.5-flash-lite` (fixed sampling) → `{answer, sources}` (sources = top 5 in rank order) |
 | measure | `evals/` | golden set → metrics → EXPERIMENTS.md row |
 
 ## Files
@@ -33,7 +33,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **rag/store.py**: creates the Pinecone index if missing (384 dims, cosine, free plan = AWS us-east-1) and upserts chunks by fixed id. Key comes from `.env`.
 - **rag/answer.py**: `retrieve(question)` does top-k search only (no LLM). `answer(question)` calls it, sends a naive prompt to Gemini, returns the answer and the retrieved pages. Same function for every version.
 - **tests/test_ingest.py**: pins the 1-based page rule on `tests/fixtures/fw4s.pdf` (2 pages).
-- **data/cache/embeddings/**: cached vectors (JSONL, git-ignored, can be rebuilt).
+- **data/cache/embeddings/**: cached vectors (JSONL, git-ignored, can be rebuilt). Not on this machine yet; `embed_documents()` creates it, and evals don't need it because search uses Pinecone.
 
 ## Rules we fixed on Day 1
 
@@ -62,7 +62,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **How to check the 512-token limit?** Count with the model's own tokenizer (`AutoTokenizer.from_pretrained(MODEL)`), not characters. Median chunk = 231 tokens, but 57 chunks are over 512 (max 681): dotted table rows like `8,000 to 8,999 ..... 2,600`. bge silently cuts off the rest.
 - **Day 2 hand check (5 questions):** q15 got the right pages but the wrong chunk (answer in p15t `7:0`, retrieved `7:1`), so page-level hit@k can be a false hit. q01 missed its gold page but answered correctly from fw4 p3. q39 hallucinated instead of abstaining.
 - **Why does re-running store.py not duplicate?** Upsert = insert or overwrite by id. Fixed ids → 2 runs still give 1,714 vectors. Random ids would give 3,428 (duplicates in top-k).
-- **Where are embeddings stored?** Only in the cache file for now; the return value lives in memory. Pinecone will be the permanent store. Query vectors aren't stored.
+- **Where are embeddings stored?** Created locally by bge, saved in the disk cache (to skip repeat work) and in Pinecone (the store that search uses). Query vectors are created locally for each question and aren't stored.
 - **Golden set from an LLM?** Fine if each answer has a page quote checked in code, unanswerable questions are proven absent, and a human spot-checks some.
 - **What the validator can't check:** whether a quote actually *supports* the answer (only that the quote exists). That's what the human spot-check is for.
 - **Near-miss?** An unanswerable question with lookalike content in the corpus (e.g. employer penalties for an individual penalty question). It tempts the model into answering.
@@ -111,5 +111,18 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **Real regression vs noise?** Regression = a question gets worse after a change. Call it real when a repeatable cause explains it: q24 was right in all 3 v0 runs, then re-ranking removed the "6.0" text from its context. Hit@5 stayed true, so only the per-question check showed it.
 - **v1 run 2:** same contexts, Correct 0.872, Abstain 0.818. q24 is a judge false pass (the answer still lacks 6.0%) and q40 looks like judge noise, so read the answer before trusting a flip. Median latency fell back to 1.97 s, so re-ranking didn't cause run 1's jump.
 - **How do you know an eval can be trusted?** Check each layer: golden set (quotes verified), metric code (unit tests), judges (hand labels, repeat for stability), noise floor (repeat runs), flips (read the answers). It lowers the risk but doesn't prove the eval is right.
+- **Chunk check for q15, q35, q24:** the Table 2 chunk (p15t `7:0`, 416 tokens) starts with PDF header junk and isn't cut off by the 512 limit. q24's 6.0% sits at the end of p15 `44:1`, with the credit in `44:2`. Only 7 of the 57 over-limit chunks matched a dotted-row pattern, so the earlier "dotted tables" note may be too broad.
+- **Recursive splitter preview:** our PDF text has no blank lines (0 of 314 pages), so it can't cut at paragraphs, only at line ends. 1,746 chunks, and q24's and Table 2's chunks look almost unchanged, so it may not fix q15, q35 or q24.
+- **Chunking A result:** Hit@5 0.897, MRR 0.716, so no gain over v1. q22 and q44 fixed, q34 and q36 lost. Table 2 is still too far down the vector search, and the re-ranker puts q24's 6.0% chunk at rank 9.
+- **PDF header junk:** 277 of 314 pages start with about 200 chars of proof text ("Page 7 of 71 Fileid..." and "MUST be removed before printing"), so it takes about 20% of each page's first chunk. Junk cleanup (B) would remove it.
+- **Chunking B result:** Hit@5 0.821, MRR 0.635, worse than v1. q24's 6.0% came back, but q01, q17 and q34 became misses and Table 2 fell out of the top 50. A sensible-looking cleanup can still lower the score, so measure it.
+- **Neighbouring chunks (small-to-big)?** Search with small chunks, then also send the chunks next to each match to the LLM. Fixed ids (`p15t.pdf:7:1` = file, page 7, chunk 1) let us fetch neighbours from Pinecone with no re-indexing. It could bring in Table 2 (`7:0`) because `7:1` is already retrieved; not tested yet. Hit@5 reads only `sources`, so if neighbours stay out of `sources` it can't change; same-page neighbours add no new pages, so measure them by checking the evidence text in the context. The sketch stops at page edges, so neighbours on other pages need extra code.
+- **Neighbours vs parent page (local check on v1's top 5):** median context is about 1,150 bge tokens for top 5, 2,800 with neighbours and 6,100 with whole pages. Both bring in Table 2 and q24's 6.0%. Whole pages cost about twice the tokens of neighbours.
+- **When does `rag/neighbours.py` run?** At question time, inside `retrieve()`, after `rerank()` and before the context is built. Not during indexing.
+- **`rag/neighbours.py`:** `neighbour_ids()` works out the ids to fetch and `join_chunks()` joins them in reading order, with no separator between next-door chunks because fixed cuts can split a word. `WINDOW` in `rag/answer.py` sets the size; 0 turns it off.
+- **`evidence_found()` in `evals/metrics.py`:** true if all of a question's gold quotes are in the context, from any page. Hit@5 checks pages, so it can't see missing text. An answer can still be right from another page (q20), so it isn't the same as Correct.
+- **Parent document and window size?** Parent document: search small child chunks, then send the bigger parent each one belongs to (for us, the page). Window size: how many chunks to add on each side of a match, so window 1 gives up to 3 chunks per match and window 2 up to 5.
+- **Where is the parent stored?** Outside the vector search, in a separate store (Postgres, Redis, blob storage), found by `parent_id`. It has no vector. We have no such store; our page could be rebuilt by joining its no-overlap chunks from Pinecone.
+- **v2 neighbouring chunks:** Correct 33/39 by hand to 36/39, Faithful 1.000, tokens about 2.3 times higher. q15, q35 and q24 are fixed. Still wrong: q02 (generation), q08 and q22 (retrieval).
 - **Gemini free-tier limits:** 15 requests per minute and 500 per day per model. A full eval is about 150 calls.
 - **q30 golden fix:** the answer now lists all three fax cases from iss4.pdf p2. The old one left out 855-641-6935.

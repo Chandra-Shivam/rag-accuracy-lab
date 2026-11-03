@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from rag.neighbours import SEPARATOR, join_chunks, neighbour_ids
 from rag.rerank import get_model as get_reranker, rerank
 from rag.store import get_store
 
@@ -20,6 +21,7 @@ LLM_MODEL = "gemini-3.5-flash-lite"
 RATE_LIMITER = InMemoryRateLimiter(requests_per_second=0.2)
 K = 5
 CANDIDATES = 20  # chunks fetched from Pinecone for the re-ranker; None turns re-ranking off
+WINDOW = 1  # chunks added to the context on each side of a match, same page only; 0 turns this off
 PROMPT = """Answer the question using the context below.
 
 Context:
@@ -49,20 +51,25 @@ def _get_llm():
     return _llm
 
 
-def retrieve(question, k=K, candidates=CANDIDATES):
-    """Search and optional re-rank, no LLM. Returns (context text for the prompt, sources)."""
+def retrieve(question, k=K, candidates=CANDIDATES, window=WINDOW):
+    """Search, optional re-rank and optional neighbours, no LLM. Returns (context text for the prompt, sources)."""
     if candidates:
         found = _get_store().similarity_search_with_score(question, k=candidates)
         matches = rerank(question, [doc for doc, _ in found], k)
     else:
         matches = _get_store().similarity_search_with_score(question, k=k)
-    context = "\n\n---\n\n".join(doc.page_content for doc, _ in matches)
     # sources = retrieved chunks in rank order (rank 1 first); hit@k and MRR are computed from these.
+    # Neighbours stay out of sources: they weren't ranked, and hit@5 must keep meaning 5 chunks.
     sources = [
         {"source": doc.metadata["source"], "page": int(doc.metadata["page"]),
          "chunk_index": int(doc.metadata["chunk_index"]), "score": round(score, 4)}
         for doc, score in matches
     ]
+    if window:
+        fetched = _get_store().index.fetch(ids=neighbour_ids(sources, window)).vectors
+        context = join_chunks([record.metadata for record in fetched.values()])
+    else:
+        context = SEPARATOR.join(doc.page_content for doc, _ in matches)
     return context, sources
 
 

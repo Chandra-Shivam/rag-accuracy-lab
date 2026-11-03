@@ -9,6 +9,7 @@ Every change is measured on the same golden set. One change per row.
 | v0 | Run 3, final judge rules and golden answers (**baseline**) | 0.795 | 0.597 | 0.769 | 0.880 | 0.909 | 1.93 | 1467 | Compare later versions with this row; median latency 1.92 s |
 | v1 | Re-ranking, 20 candidates, ms-marco-MiniLM-L-6-v2 | 0.897 | 0.722 | 0.846 | 0.960 | 0.909 | 5.86 | 1440 | Run 1; median latency 6.16 s, but most of the rise is Gemini time, not re-ranking (see Day 4 notes) |
 | v1 | Same code, run 2 (noise check) | 0.897 | 0.722 | 0.872 | 0.940 | 0.818 | 3.07 | 1438 | No change to code or questions; median latency 1.97 s. q24's Correct and q40's Abstain look like judge errors (see Day 4 notes) |
+| v2 | Neighbouring chunks, same page, window 1 | 0.897 | 0.722 | 0.923 | 1.000 | 0.909 | 3.46 | 3357 | Run 1; median latency 2.50 s; Evidence 0.897, up from 0.667 (see Day 4 notes) |
 
 ## Day 4 re-ranking
 
@@ -54,6 +55,60 @@ Result (`evals/results/v1_rerank20_run2.jsonl`): Correct 34/39 (0.872), Faithful
 - **Latency:** the median fell back from 6.16 s to 1.97 s with the same code, against 1.92 s for v0. So the run 1 rise was not caused by re-ranking. The mean is still higher (3.07 s against 1.93 s), with slow answers of up to 12.29 s, and those were not investigated.
 
 Verdict: re-ranking is a real retrieval gain (Hit@5 0.795 to 0.897, repeatable). Correct rose about 3 questions by hand count, above the noise floor of about 2. The Faithful rise overlaps the v0 range, so it is not proven. q24 is still a real loss, which the Correct score in run 2 hides.
+
+## Day 4 chunking option A: recursive splitter
+
+Change: `RecursiveCharacterTextSplitter`, 1,000 chars, no overlap, 1,746 chunks, index `irs-bge-small-recursive-1000`. Re-ranking stays on with 20 candidates. Our PDF text has no blank lines, so it cuts at line ends, not paragraphs.
+
+Prediction (written before the run): Hit@5 0.90, MRR 0.8, Table 2 (q15, q35) not in the top 5, q24's 6.0% in the top 5.
+
+Retrieval-only result: Hit@5 0.897 (35/39), MRR 0.716, against 0.897 and 0.722 for v1. No Gemini calls.
+
+- **Hit flips:** q22 and q44 are fixed. q34 and q36 are new misses, and their cause was not investigated. q36 was one of re-ranking's Correct gains.
+- **Table 2:** still not in the top 5. For q15 the chunk with 619.20 is at vector rank 48, so it is not in the 20 candidates. For q35, 309.60 is not in the top 50.
+- **q24:** the chunk with 6.0% is at vector rank 3, but the re-ranker puts it at 9, so it is still not in the top 5.
+
+Verdict: no measured gain, and the target questions did not move. No full eval was run, so its effect on Correct is unknown.
+
+## Day 4 chunking option B: junk cleanup
+
+Change: `clean_page()` removes the print-proof header from 277 of 314 pages. Fixed 1,000-char chunks, 1,663 chunks, index `irs-bge-small-cleaned-1000`. Re-ranking stays on with 20 candidates.
+
+Prediction (written before the run): Hit@5 0.9, MRR 0.8, Table 2 and q24's 6.0% both in the top 5.
+
+Retrieval-only result: Hit@5 0.821 (32/39), MRR 0.635, against 0.897 and 0.722 for v1. No Gemini calls.
+
+- **Hit flips:** q01, q17 and q34 are new misses. Their cause was not investigated; removing the header also moves the later cuts on those pages, which may be why. They may also be false misses, since no answers were generated.
+- **q24:** improved. The chunk with 6.0% is at vector rank 1 and re-rank 2, so it is back in the top 5.
+- **Table 2:** still missing, and worse. 619.20 (q15) and 309.60 (q35) are not in the top 50. Chunk `7:0` starts with "Table 2 / Payroll period / Add additional", while "nonresident alien" is in the text before the table, which may be why search misses it. Chunk `7:1` is in the top 5 for both questions.
+
+Verdict: worse overall on retrieval, with one target question fixed. No full eval was run, so its effect on Correct is unknown.
+
+## Day 4 neighbouring chunks
+
+Change: after re-ranking, also send the chunks on each side of each top-5 chunk to the LLM (same page, window 1). `sources` stays the top 5, so Hit@5 and MRR do not change. New metric: Evidence, true if all gold quotes are in the context.
+
+Retrieval-only result, no Gemini calls:
+
+| Window | Hit@5 | MRR | Evidence | Median context chars | Median retrieval time, 20 questions |
+|---|---|---|---|---|---|
+| 0 (v1) | 0.897 | 0.722 | 0.667 (26/39) | 5,028 | 0.46 s |
+| 1 | 0.897 | 0.722 | 0.897 (35/39) | 11,148 | 0.80 s |
+
+- **Target questions:** Table 2 (q15, q35) and q24's 6.0% are now in the context.
+- **Still no evidence:** q08, q10, q20, q22.
+
+Prediction for the full eval (written before the run): Correct 35/39, Faithful 49/50, Abstain 9/11, q15 and q35 right, q24 wrong.
+
+Result (`evals/results/v2_neighbours1.jsonl`): Correct 36/39 (0.923), Faithful 50/50 (1.000), Abstain 10/11 (0.909), mean tokens 3,357. Wrong: q02, q08, q22. Not abstained: q39.
+
+- **Correct gains:** q15, q35 and q24. Each answer was read by hand and gives the expected values, and each gain follows from its evidence now being in the context. q24 now states 6.0%, so this pass is real, unlike v1 run 2.
+- **Still wrong:** q08 and q22 have no evidence in the context. q02 has its evidence but still leaves out 2026, a generation problem for Day 5.
+- **Faithful 1.000:** one run, and just above v1's 0.940 to 0.960, so not clear evidence. q39 is marked faithful, and the text it uses is in the context, but q39 should still have abstained.
+- **q10:** right with no evidence found, because the answer comes from different wording ("at no cost") than the gold quote.
+- **Cost:** mean tokens rose from about 1,440 to 3,357 (2.3 times). Median latency was 2.50 s, against 1.97 s for v1 run 2 and 6.16 s for v1 run 1, so latency stays too noisy for a firm comparison.
+
+Verdict: best version so far, up 3 questions from v1 by hand count, with a clear cause for each. It is one run; repeat it for noise.
 
 ## Day 3 error analysis of v0_run3
 

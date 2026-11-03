@@ -3,6 +3,18 @@
 gold = the golden set's list of {source, page}; sources = retrieved chunks in rank order.
 Unanswerable questions (gold = []) must be filtered out by the caller of is_hit and reciprocal_rank.
 """
+import re
+
+
+def _norm(text):
+    # Same rule as evals/validate_golden.py: PDF text breaks words with spaces and hyphens.
+    return re.sub(r"[^a-z0-9$%]", "", text.lower())
+
+
+def evidence_found(evidence, context):
+    """True only if ALL evidence quotes are in the context. Page-level hit@k can't see this."""
+    text = _norm(context)
+    return all(_norm(e["quote"]) in text for e in evidence)
 
 
 def _page(entry):
@@ -30,7 +42,7 @@ def summarize(rows):
     but no "hit", "rr" or "correct". So every metric gets the right denominator automatically.
     """
     return {key: _mean([r[key] for r in rows if key in r])
-            for key in ("hit", "rr", "correct", "faithful", "abstained", "latency", "tokens")}
+            for key in ("hit", "rr", "evidence", "correct", "faithful", "abstained", "latency", "tokens")}
 
 
 def _mean(values):

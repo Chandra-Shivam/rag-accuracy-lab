@@ -5,6 +5,7 @@ Usage: python evals/run.py                     (all questions, saved to evals/re
        python evals/run.py <case_id>           (one question, not saved)
        python evals/run.py --retrieval-only    (hit@k and MRR only, no Gemini calls, not saved)
        python evals/run.py --retrieval-only --candidates 20    (same, re-ranking 20 chunks; 0 = off)
+       python evals/run.py --retrieval-only --window 0         (same, without neighbouring chunks)
 A full run makes about 150 Gemini calls. If it stops (e.g. daily quota), the same command
 continues it, skipping the questions already saved.
 Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
@@ -20,27 +21,35 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from evals.judge import judge_abstention, judge_correctness, judge_faithfulness
-from evals.metrics import is_hit, reciprocal_rank, summarize
-from rag.answer import CANDIDATES, K, answer, retrieve
+from evals.metrics import evidence_found, is_hit, reciprocal_rank, summarize
+from rag.answer import CANDIDATES, K, WINDOW, answer, retrieve
 
 GOLDEN = ROOT / "evals" / "golden.jsonl"
+EVIDENCE = ROOT / "evals" / "golden_evidence.jsonl"
 RESULTS = ROOT / "evals" / "results"
 
 
+def load_jsonl(path):
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def load_golden(case_id=None):
-    rows = [json.loads(line) for line in GOLDEN.read_text().splitlines() if line.strip()]
+    rows = load_jsonl(GOLDEN)
     if case_id:
         rows = [q for q in rows if q["id"] == case_id]
         if not rows:
             sys.exit(f"no question with id {case_id!r}")
-    return rows
+    # Unanswerable questions have "absent" words instead of evidence quotes.
+    evidence = {e["id"]: e.get("evidence", []) for e in load_jsonl(EVIDENCE)}
+    return [{**q, "evidence": evidence[q["id"]]} for q in rows]
 
 
-def score_retrieval(q, candidates=CANDIDATES):
+def score_retrieval(q, candidates=CANDIDATES, window=WINDOW):
     """Retrieval metrics for one answerable question. Needs no LLM."""
-    _, sources = retrieve(q["question"], candidates=candidates)
+    context, sources = retrieve(q["question"], candidates=candidates, window=window)
     return {"id": q["id"], "type": q["type"], "sources": sources,
-            "hit": is_hit(q["gold"], sources), "rr": reciprocal_rank(q["gold"], sources)}
+            "hit": is_hit(q["gold"], sources), "rr": reciprocal_rank(q["gold"], sources),
+            "evidence": evidence_found(q["evidence"], context)}
 
 
 def score_question(q):
@@ -58,6 +67,7 @@ def score_question(q):
     else:
         correctness = judge_correctness(q["question"], q["answer"], result["answer"])
         row.update(hit=is_hit(q["gold"], result["sources"]), rr=reciprocal_rank(q["gold"], result["sources"]),
+                   evidence=evidence_found(q["evidence"], result["context"]),
                    correct=correctness.label == "correct", correct_reason=correctness.reason)
     return row
 
@@ -69,7 +79,7 @@ def load_saved(path):
 
 
 def print_row(r):
-    labels = {"hit": ("hit", "MISS"), "correct": ("correct", "WRONG"),
+    labels = {"hit": ("hit", "MISS"), "evidence": ("evidence", "NO_EVIDENCE"), "correct": ("correct", "WRONG"),
               "abstained": ("abstained", "ANSWERED"), "faithful": ("faithful", "UNFAITHFUL")}
     flags = [labels[key][0 if r[key] else 1] for key in labels if key in r]
     print(f"{r['id']}  {r['type']:<12} {'  '.join(flags)}", flush=True)
@@ -79,7 +89,7 @@ def print_row(r):
 
 
 def format_summary(s):
-    parts = [("hit", f"hit@{K}", ".3f"), ("rr", "MRR", ".3f"), ("correct", "correct", ".3f"),
+    parts = [("hit", f"hit@{K}", ".3f"), ("rr", "MRR", ".3f"), ("evidence", "evidence", ".3f"), ("correct", "correct", ".3f"),
              ("faithful", "faithful", ".3f"), ("abstained", "abstain", ".3f"),
              ("latency", "latency", ".2f"), ("tokens", "tokens", ".0f")]
     return "  ".join(f"{name} {s[key]:{fmt}}" for key, name, fmt in parts if s[key] is not None)
@@ -102,11 +112,13 @@ def main():
     parser.add_argument("--retrieval-only", action="store_true", help="hit@k and MRR only, no Gemini calls")
     parser.add_argument("--candidates", type=int, default=CANDIDATES,
                         help="with --retrieval-only: chunks to re-rank; 0 turns re-ranking off")
+    parser.add_argument("--window", type=int, default=WINDOW,
+                        help="with --retrieval-only: neighbouring chunks on each side; 0 turns this off")
     args = parser.parse_args()
     questions = load_golden(args.case_id)
 
     if args.retrieval_only:
-        rows = [score_retrieval(q, args.candidates) for q in questions if q["type"] != "unanswerable"]
+        rows = [score_retrieval(q, args.candidates, args.window) for q in questions if q["type"] != "unanswerable"]
         for r in rows:
             print_row(r)
     elif args.case_id:

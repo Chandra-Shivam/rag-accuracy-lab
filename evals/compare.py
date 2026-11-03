@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 from evals.metrics import summarize
 
 RESULTS = ROOT / "evals" / "results"
-METRICS = ("hit", "rr", "correct", "faithful", "abstained")
+METRICS = ("hit", "rr", "evidence", "correct", "faithful", "abstained")
 
 
 def load_run(name):

@@ -1,6 +1,6 @@
 """Pins the hit@k and MRR definitions from PLAN.md (Day 3)."""
 
-from evals.metrics import is_hit, reciprocal_rank, summarize
+from evals.metrics import evidence_found, is_hit, reciprocal_rank, summarize
 
 
 def page(source, number):
@@ -45,6 +45,24 @@ def test_summarize_uses_only_rows_that_have_the_metric():
 
 def test_summarize_returns_none_for_a_metric_no_row_has():
     assert summarize([{"hit": True, "rr": 1.0}])["correct"] is None
+
+
+def quote(text):
+    return {"source": "a.pdf", "page": 1, "quote": text}
+
+
+def test_evidence_needs_all_quotes():
+    context = "Weekly $309.60 and Biweekly 619.20"
+    assert evidence_found([quote("Weekly $309.60"), quote("Biweekly 619.20")], context)
+    assert not evidence_found([quote("Weekly $309.60"), quote("Monthly 1,341.70")], context)
+
+
+def test_evidence_ignores_pdf_line_breaks_and_hyphens():
+    assert evidence_found([quote("each employee as wages")], "each em-\nployee as wages")
+
+
+def test_evidence_keeps_digits_exact():
+    assert not evidence_found([quote("rate is 6.0%")], "rate is 0.6%")
 
 
 def test_extra_fields_on_retrieved_chunks_are_ignored():
