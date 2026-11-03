@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from rag.hybrid import fuse, get_index as get_keyword_index, keyword_search
 from rag.neighbours import SEPARATOR, join_chunks, neighbour_ids
 from rag.rerank import get_model as get_reranker, rerank
 from rag.store import get_store
@@ -20,7 +21,10 @@ LLM_MODEL = "gemini-3.5-flash-lite"
 # Shared with the judges, because they use the same model and the same quota.
 RATE_LIMITER = InMemoryRateLimiter(requests_per_second=0.2)
 K = 5
-CANDIDATES = 20  # chunks fetched from Pinecone for the re-ranker; None turns re-ranking off
+HYBRID_N = 20  # chunks taken from each search before fusion; 0 turns hybrid off
+# Chunks sent to the re-ranker; None turns re-ranking off. 2 * HYBRID_N, so fusion can never cut a chunk.
+# With 20, fusion cut q36's gold chunks before the re-ranker saw them (EXPERIMENTS.md).
+CANDIDATES = 2 * HYBRID_N
 WINDOW = 1  # chunks added to the context on each side of a match, same page only; 0 turns this off
 PROMPT = """Answer the question using the context below.
 
@@ -51,11 +55,14 @@ def _get_llm():
     return _llm
 
 
-def retrieve(question, k=K, candidates=CANDIDATES, window=WINDOW):
-    """Search, optional re-rank and optional neighbours, no LLM. Returns (context text for the prompt, sources)."""
+def retrieve(question, k=K, candidates=CANDIDATES, window=WINDOW, hybrid=HYBRID_N):
+    """Search, optional hybrid, re-rank and neighbours, no LLM. Returns (context text for the prompt, sources)."""
     if candidates:
-        found = _get_store().similarity_search_with_score(question, k=candidates)
-        matches = rerank(question, [doc for doc, _ in found], k)
+        found = _get_store().similarity_search_with_score(question, k=hybrid or candidates)
+        docs = [doc for doc, _ in found]
+        if hybrid:
+            docs = fuse(docs, keyword_search(question, hybrid), candidates)
+        matches = rerank(question, docs, k)
     else:
         matches = _get_store().similarity_search_with_score(question, k=k)
     # sources = retrieved chunks in rank order (rank 1 first); hit@k and MRR are computed from these.
@@ -78,6 +85,7 @@ def answer(question, k=K):
     # the system, not one-time loading or our free-tier limit.
     _get_store()
     get_reranker()
+    get_keyword_index()
     llm = _get_llm()
     RATE_LIMITER.acquire()
     start = time.perf_counter()

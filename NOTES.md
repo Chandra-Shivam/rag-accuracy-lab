@@ -10,7 +10,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 | chunk | `rag/ingest.py` `chunk_pages()` | pages → 1,000-char slices, metadata + `chunk_index`, id `source:page:index` |
 | embed | `rag/embed.py` `CachedBgeEmbeddings` | text → 384-number vector (bge-small), cached on disk |
 | store | `rag/store.py` `get_store()`, `upsert_chunks()` | chunks → vectors + metadata in Pinecone index `irs-bge-small-en-v1-5` |
-| answer | `rag/answer.py` `answer()` | question → 20 candidates → re-rank to top 5 → add neighbouring chunks → `gemini-3.5-flash-lite` (fixed sampling) → `{answer, sources}` (sources = top 5 in rank order) |
+| answer | `rag/answer.py` `answer()` | question → vector top 20 + BM25 top 20 → RRF, up to 40 candidates → re-rank to top 5 → add neighbouring chunks → `gemini-3.5-flash-lite` (fixed sampling) → `{answer, sources}` (sources = top 5 in rank order) |
 | measure | `evals/` | golden set → metrics → EXPERIMENTS.md row |
 
 ## Files
@@ -124,5 +124,16 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **Parent document and window size?** Parent document: search small child chunks, then send the bigger parent each one belongs to (for us, the page). Window size: how many chunks to add on each side of a match, so window 1 gives up to 3 chunks per match and window 2 up to 5.
 - **Where is the parent stored?** Outside the vector search, in a separate store (Postgres, Redis, blob storage), found by `parent_id`. It has no vector. We have no such store; our page could be rebuilt by joining its no-overlap chunks from Pinecone.
 - **v2 neighbouring chunks:** Correct 33/39 by hand to 36/39, Faithful 1.000, tokens about 2.3 times higher. q15, q35 and q24 are fixed. Still wrong: q02 (generation), q08 and q22 (retrieval).
+- **Pinecone indexes:** only `irs-bge-small-en-v1-5` (1,714 vectors) remains. The recursive and cleaned indexes were deleted. Their code was never committed, so testing them again means rewriting it; the results stay in EXPERIMENTS.md.
+- **Hybrid search?** Run vector search (meaning) and keyword search (BM25, exact words), then merge the two lists, usually with Reciprocal Rank Fusion. It may help q08 ("W-4S"), but q22's gold chunk is already in the top 20, so the re-ranker is its blocker. Not tested yet.
+- **How does RRF work?** Each chunk scores `1 / (60 + rank)` per list it appears in, and the scores are added, so chunks in both lists rise. 60 is the original paper's value and a common default; it keeps rank 1 from dominating. The fused top 20 then go to the re-ranker.
+- **`rag/hybrid.py`:** `keyword_search()` runs BM25 over chunks rebuilt from the PDFs (about 9 s once per process, 2 ms per search) and `fuse()` applies RRF. `HYBRID_N` in `rag/answer.py` sets the chunks taken from each search; `--hybrid 0` gives vector only. The API now needs the PDFs at run time.
+- **How does BM25 score?** Each question word found in a chunk adds to its score; not all words have to match. Rare words add more, repeats add less each time, and long chunks count slightly less. Our tokenizer has no stemming, so "employee" doesn't match "employees".
+- **Is BM25 stored in Pinecone? Why PDFs?** No, it stays in memory on our machine as word counts per chunk, with no re-indexing or vectors. It needs the text of every chunk, and the PDFs were the easiest source; a saved chunk file would also work and would remove the PDF need.
+- **What is a tokenizer?** It splits text into the pieces a system works on. We have two: `tokenize()` in `rag/hybrid.py` for BM25 (our own rule, used on both chunks and question), and bge's for embeddings (comes with the model; sentence-transformers runs it, we didn't write it). Their tokens are different.
+- **Hybrid retrieval-only result:** N = 20 gives Hit@5 0.949, MRR 0.742, Evidence 36/39. q08 is fixed, q22 is a page-level false hit, and q36 is lost because fusion cuts its chunks before re-ranking. A chunk in one list only can lose to chunks in both, even at a good rank.
+- **Why can a bigger N lose chunks?** Fusion always keeps 20. Below N = 62, a chunk in both lists always outscores a chunk in one list (2/(60+N) > 1/61), and longer lists put more chunks in both. q20: 7 in both at N = 20, 24 at N = 50, so its BM25-only chunk was cut.
+- **Hybrid without the cut:** N = 20 with 40 candidates gives Hit@5 0.974, MRR 0.776, Evidence 37/39, and q36 is back, for about 0.1 s more retrieval time. q22 is still a false hit. Chosen on the same 39 questions, so possibly a little optimistic.
+- **v3 hybrid search:** Correct 36/39 from the judge, 37/39 by hand (q31 is a judge false fail, re-judged correct 3 of 3). q08 is fixed; q02 and q22 are still wrong. Median latency rose to 19.95 s, but a new Gemini key changed in the same run, so the cause isn't confirmed.
 - **Gemini free-tier limits:** 15 requests per minute and 500 per day per model. A full eval is about 150 calls.
 - **q30 golden fix:** the answer now lists all three fax cases from iss4.pdf p2. The old one left out 855-641-6935.

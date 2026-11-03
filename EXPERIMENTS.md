@@ -10,6 +10,7 @@ Every change is measured on the same golden set. One change per row.
 | v1 | Re-ranking, 20 candidates, ms-marco-MiniLM-L-6-v2 | 0.897 | 0.722 | 0.846 | 0.960 | 0.909 | 5.86 | 1440 | Run 1; median latency 6.16 s, but most of the rise is Gemini time, not re-ranking (see Day 4 notes) |
 | v1 | Same code, run 2 (noise check) | 0.897 | 0.722 | 0.872 | 0.940 | 0.818 | 3.07 | 1438 | No change to code or questions; median latency 1.97 s. q24's Correct and q40's Abstain look like judge errors (see Day 4 notes) |
 | v2 | Neighbouring chunks, same page, window 1 | 0.897 | 0.722 | 0.923 | 1.000 | 0.909 | 3.46 | 3357 | Run 1; median latency 2.50 s; Evidence 0.897, up from 0.667 (see Day 4 notes) |
+| v3 | Hybrid search, BM25 + RRF, 20 from each search, 40 candidates | 0.974 | 0.776 | 0.923 | 1.000 | 0.909 | 23.81 | 3375 | Run 1; Evidence 0.949. By hand Correct is 37/39 (q31 is a judge false fail). Median latency 19.95 s, cause not confirmed; a new Gemini key was also used in this run (see Day 4 notes) |
 
 ## Day 4 re-ranking
 
@@ -109,6 +110,52 @@ Result (`evals/results/v2_neighbours1.jsonl`): Correct 36/39 (0.923), Faithful 5
 - **Cost:** mean tokens rose from about 1,440 to 3,357 (2.3 times). Median latency was 2.50 s, against 1.97 s for v1 run 2 and 6.16 s for v1 run 1, so latency stays too noisy for a firm comparison.
 
 Verdict: best version so far, up 3 questions from v1 by hand count, with a clear cause for each. It is one run; repeat it for noise.
+
+## Day 4 hybrid search
+
+Change: local BM25 + vector search, merged with Reciprocal Rank Fusion (k = 60). N chunks come from each search, fusion keeps the best 20, then re-ranking and neighbours run as in v2.
+
+Prediction (written before the run): Hit@5 0.95, MRR 0.85, Evidence 37/39, q08 and q22 fixed.
+
+Retrieval-only result, no Gemini calls:
+
+| N | Hit@5 | MRR | Evidence | Hit gains | Hit losses |
+|---|---|---|---|---|---|
+| 0 (v2) | 0.897 | 0.722 | 0.897 (35/39) | | |
+| 20 | 0.949 | 0.742 | 0.923 (36/39) | q08, q20, q22 | q36 |
+| 50 | 0.949 | 0.744 | 0.897 (35/39) | q08, q22, q44 | q36 |
+
+- **q08:** fixed. Its gold chunk `fw4s.pdf:1:0` is at vector rank 57 and BM25 rank 1.
+- **q22:** Hit@5 only. The hit comes from `fw4.pdf:4:0`. The answer is in `4:2`, which the re-ranker puts at position 13, so the evidence is still missing.
+- **q36:** a real loss. Its gold chunks are at vector ranks 12 and 13 and BM25 ranks 61 and 41. With N = 20 they appear in one list only, score less than the top BM25 chunks, and are cut from the 20 before re-ranking. With N = 50, `fw4.pdf:1:0` is still cut.
+- **q20:** N = 20 finds `p15b.pdf:6:1` (BM25 rank 5, then re-rank position 1). With N = 50 it is cut, because more chunks appear in both lists and fill the 20. q20 was already right in v2, from another page.
+- **MRR:** q01 and q05 fell slightly with both N values.
+
+Verdict: not decided. Both values lose q36, and the cut to 20 looks like the cause. Not yet tested with the full eval.
+
+Prediction for N = 20 with 40 candidates, so nothing is cut (written before the run): Hit@5 0.95, MRR 0.85, Evidence 37/39, q36 comes back.
+
+Result, retrieval-only: Hit@5 0.974 (38/39), MRR 0.776, Evidence 0.949 (37/39). Median retrieval time over 20 questions: 0.82 s for v2, 0.82 s for N = 20 with 20 candidates, 0.91 s for N = 20 with 40 candidates.
+
+- **Cause confirmed:** q36 is back, so the cut to 20 caused its loss. q08 and q20 stay fixed.
+- **No evidence:** q10 (right in v2, from different wording) and q22 (a page-level false hit; the answer chunk is not in the top 5).
+- **Miss:** q44, though its evidence text is in the context from other pages.
+- **Limit:** N and the candidate count were chosen on the same 39 questions we report, so these numbers may be slightly optimistic.
+
+Verdict: best retrieval so far. Not yet tested with the full eval.
+
+Prediction for the full eval (written before the run): Correct 37/39, Faithful 50/50, Abstain 11/11, q02, q08 and q22 right.
+
+Result (`evals/results/v3_hybrid20.jsonl`): Correct 36/39 (0.923), Faithful 50/50 (1.000), Abstain 10/11 (0.909), mean tokens 3,375. Wrong: q02, q22, q31. Not abstained: q39.
+
+- **Correct gain:** q08 now names the third-party payer, and hybrid search brought in its gold chunk.
+- **q31 flip is a judge false fail:** the answer gives the same 10% and 20% as v2. The question asks for the default rates, so the other details are optional (rule in NOTES.md). Re-judging the saved answer gave correct 3 of 3. By hand, Correct is 37/39.
+- **Still wrong:** q22 has no evidence in the context, and the answer says the worksheet has no such entry. q02 has its evidence but leaves out 2026, a generation problem for Day 5.
+- **q36:** right, so the loss seen with 20 candidates did not come back.
+- **q39:** still doesn't abstain, a generation problem for Day 5.
+- **Latency:** median 19.95 s and maximum 155 s, against 2.50 s and 14 s for v2. Separate timing puts retrieval at about 1 s, so most of it is probably not retrieval. In 2 spot checks Gemini took 1.3 s and 9.6 s. The new Gemini key from another account changed in the same run, so the cause is not confirmed. Retries on rate limits are possible but not checked.
+
+Verdict: best version so far, up 1 question from v2 by hand count (37/39 against 36/39), from q08. It is one run; repeat it, also to check latency.
 
 ## Day 3 error analysis of v0_run3
 

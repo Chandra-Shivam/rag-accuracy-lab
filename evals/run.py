@@ -6,6 +6,8 @@ Usage: python evals/run.py                     (all questions, saved to evals/re
        python evals/run.py --retrieval-only    (hit@k and MRR only, no Gemini calls, not saved)
        python evals/run.py --retrieval-only --candidates 20    (same, re-ranking 20 chunks; 0 = off)
        python evals/run.py --retrieval-only --window 0         (same, without neighbouring chunks)
+       python evals/run.py --retrieval-only --hybrid 50        (same, 50 chunks from each search; 0 = vector only)
+       python evals/run.py --retrieval-only --hybrid 0 --candidates 20    (same, as v2)
 A full run makes about 150 Gemini calls. If it stops (e.g. daily quota), the same command
 continues it, skipping the questions already saved.
 Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
@@ -22,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from evals.judge import judge_abstention, judge_correctness, judge_faithfulness
 from evals.metrics import evidence_found, is_hit, reciprocal_rank, summarize
-from rag.answer import CANDIDATES, K, WINDOW, answer, retrieve
+from rag.answer import CANDIDATES, HYBRID_N, K, WINDOW, answer, retrieve
 
 GOLDEN = ROOT / "evals" / "golden.jsonl"
 EVIDENCE = ROOT / "evals" / "golden_evidence.jsonl"
@@ -44,9 +46,9 @@ def load_golden(case_id=None):
     return [{**q, "evidence": evidence[q["id"]]} for q in rows]
 
 
-def score_retrieval(q, candidates=CANDIDATES, window=WINDOW):
+def score_retrieval(q, candidates=CANDIDATES, window=WINDOW, hybrid=HYBRID_N):
     """Retrieval metrics for one answerable question. Needs no LLM."""
-    context, sources = retrieve(q["question"], candidates=candidates, window=window)
+    context, sources = retrieve(q["question"], candidates=candidates, window=window, hybrid=hybrid)
     return {"id": q["id"], "type": q["type"], "sources": sources,
             "hit": is_hit(q["gold"], sources), "rr": reciprocal_rank(q["gold"], sources),
             "evidence": evidence_found(q["evidence"], context)}
@@ -114,11 +116,14 @@ def main():
                         help="with --retrieval-only: chunks to re-rank; 0 turns re-ranking off")
     parser.add_argument("--window", type=int, default=WINDOW,
                         help="with --retrieval-only: neighbouring chunks on each side; 0 turns this off")
+    parser.add_argument("--hybrid", type=int, default=HYBRID_N,
+                        help="with --retrieval-only: chunks from each search before fusion; 0 = vector only")
     args = parser.parse_args()
     questions = load_golden(args.case_id)
 
     if args.retrieval_only:
-        rows = [score_retrieval(q, args.candidates, args.window) for q in questions if q["type"] != "unanswerable"]
+        rows = [score_retrieval(q, args.candidates, args.window, args.hybrid)
+                for q in questions if q["type"] != "unanswerable"]
         for r in rows:
             print_row(r)
     elif args.case_id:
