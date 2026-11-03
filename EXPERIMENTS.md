@@ -8,6 +8,26 @@ Every change is measured on the same golden set. One change per row.
 | v0 | Same code, run 2 (noise check) | 0.795 | 0.597 | 0.795 | 0.900 | 0.909 | 1.78 | 1462 | No change to code or questions; median latency 1.71 s |
 | v0 | Run 3, final judge rules and golden answers (**baseline**) | 0.795 | 0.597 | 0.769 | 0.880 | 0.909 | 1.93 | 1467 | Compare later versions with this row; median latency 1.92 s |
 
+## Day 3 error analysis of v0_run3
+
+Rank = position of the chunk containing the gold evidence in a top-50 search.
+
+| Cause | Questions | Wrong answers |
+|---|---|---|
+| Retrieval, near miss (gold chunk ranks 6 to 20) | q02 (8), q22 (16), q27 (6), q36 (12 and 13) | 4 |
+| Retrieval, deep miss (gold chunk below 50) | q08, q20 | 2 |
+| Table chunk not retrieved, page-level false hit (below 50) | q15, q35 | 2 |
+| Generation, right context but wrong conclusion | q37 | 1 |
+
+Other failures:
+- **Answer correct, hit@5 is a miss:** q01 (the evidence is split across two chunks), q03 (gold chunk at rank 7; the answer came from other pages).
+- **No abstention:** q39. The answer gives the failure-to-pay rate as the failure-to-file rate. The prompt has no abstention rule.
+- **Unfaithful verdicts:** q27, q37 and q39 look right. q12 and q36 changed between runs and look like judge noise. q03 is not settled.
+
+Hand-check of `supported` verdicts: 8 random questions (q05, q06, q08, q11, q23, q26, q29, q41), seed 7. All 8 look right. This sample is small, so it does not rule out errors in the other 36. It also did not include q27-style answers.
+
+Most frequent cause: near-miss retrieval, so Day 4 should try re-ranking first. Then look at chunking (q15, q35, q01) and hybrid search (q08). A gold chunk's rank shows that a fix is possible, not that it will work.
+
 ## Day 3 noise check: v0 run 1 vs run 2
 
 No prediction was recorded before run 2. Files: `evals/results/v0.jsonl`, `evals/results/v0_run2.jsonl`.

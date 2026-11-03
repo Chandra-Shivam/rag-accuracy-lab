@@ -101,5 +101,7 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **`evals/compare.py`:** `python evals/compare.py v0 v0_run2` compares two saved runs and lists each question that flipped. No Gemini calls.
 - **What is `metric` in compare.py?** Just a key name, such as `"correct"`, used to read a saved value. `score_question()` in `evals/run.py` works out the per-question values; `compare.py` only reads them.
 - **v0 baseline:** `evals/results/v0_run3.jsonl` (Correct 0.769, Faithful 0.880). q37 had the right numbers and the wrong conclusion, so generation can also fail when retrieval is right.
+- **v0 error analysis:** of 9 wrong answers, 4 are near-miss retrieval (gold chunk at rank 6 to 20), 2 deep misses, 2 table chunks not retrieved, 1 generation. Near misses suggest trying re-ranking first on Day 4.
+- **Who ranks chunks?** Not the LLM. Embeddings and Pinecone rank them by vector similarity, and the LLM only sees the final top 5. Re-ranking fetches many chunks, re-scores them, and still sends 5 to the LLM.
 - **Gemini free-tier limits:** 15 requests per minute and 500 per day per model. A full eval is about 150 calls.
 - **q30 golden fix:** the answer now lists all three fax cases from iss4.pdf p2. The old one left out 855-641-6935.
