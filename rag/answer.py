@@ -90,11 +90,12 @@ def answer(question, k=K):
     RATE_LIMITER.acquire()
     start = time.perf_counter()
     context, sources = retrieve(question, k=k)
+    retrieval_latency = time.perf_counter() - start
     reply = llm.invoke(PROMPT.format(context=context, question=question))
     latency = time.perf_counter() - start
     # context = the exact text the model saw; the faithfulness judge checks the answer against it.
-    return {"answer": reply.text, "sources": sources, "context": context,
-            "latency": round(latency, 3), "tokens": reply.usage_metadata["total_tokens"]}
+    return {"answer": reply.text, "sources": sources, "context": context, "latency": round(latency, 3),
+            "retrieval_latency": round(retrieval_latency, 3), "tokens": reply.usage_metadata["total_tokens"]}
 
 
 if __name__ == "__main__":

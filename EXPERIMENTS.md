@@ -10,7 +10,8 @@ Every change is measured on the same golden set. One change per row.
 | v1 | Re-ranking, 20 candidates, ms-marco-MiniLM-L-6-v2 | 0.897 | 0.722 | 0.846 | 0.960 | 0.909 | 5.86 | 1440 | Run 1; median latency 6.16 s, but most of the rise is Gemini time, not re-ranking (see Day 4 notes) |
 | v1 | Same code, run 2 (noise check) | 0.897 | 0.722 | 0.872 | 0.940 | 0.818 | 3.07 | 1438 | No change to code or questions; median latency 1.97 s. q24's Correct and q40's Abstain look like judge errors (see Day 4 notes) |
 | v2 | Neighbouring chunks, same page, window 1 | 0.897 | 0.722 | 0.923 | 1.000 | 0.909 | 3.46 | 3357 | Run 1; median latency 2.50 s; Evidence 0.897, up from 0.667 (see Day 4 notes) |
-| v3 | Hybrid search, BM25 + RRF, 20 from each search, 40 candidates | 0.974 | 0.776 | 0.923 | 1.000 | 0.909 | 23.81 | 3375 | Run 1; Evidence 0.949. By hand Correct is 37/39 (q31 is a judge false fail). Median latency 19.95 s, cause not confirmed; a new Gemini key was also used in this run (see Day 4 notes) |
+| v3 | Hybrid search, BM25 + RRF, 20 from each search, 40 candidates | 0.974 | 0.776 | 0.923 | 1.000 | 0.909 | 23.81 | 3375 | Run 1; Evidence 0.949. By hand Correct is 37/39 (q31 is a judge false fail). Median latency 19.95 s, not repeated in run 2 (see Day 4 notes) |
+| v3 | Same code, run 2 (noise check) | 0.974 | 0.776 | 0.949 | 1.000 | 0.909 | 3.27 | 3374 | No change to retrieval or questions; median latency 2.39 s, of which retrieval 1.07 s and Gemini 1.35 s. q31 is now correct, so the judge agrees with the hand count (see Day 4 notes) |
 
 ## Day 4 re-ranking
 
@@ -156,6 +157,17 @@ Result (`evals/results/v3_hybrid20.jsonl`): Correct 36/39 (0.923), Faithful 50/5
 - **Latency:** median 19.95 s and maximum 155 s, against 2.50 s and 14 s for v2. Separate timing puts retrieval at about 1 s, so most of it is probably not retrieval. In 2 spot checks Gemini took 1.3 s and 9.6 s. The new Gemini key from another account changed in the same run, so the cause is not confirmed. Retries on rate limits are possible but not checked.
 
 Verdict: best version so far, up 1 question from v2 by hand count (37/39 against 36/39), from q08. It is one run; repeat it, also to check latency.
+
+Prediction for run 2 (written before the run): Correct 37/39, Faithful 50/50, Abstain 10/11, most of the time is Gemini.
+
+Result (`evals/results/v3_hybrid20_run2.jsonl`): Correct 37/39 (0.949), Faithful 50/50 (1.000), Abstain 10/11 (0.909), mean tokens 3,374. Wrong: q02, q22. Not abstained: q39.
+
+- **Flips:** only q31, from wrong to correct, which supports the judge false fail in run 1. Hit@5, MRR and Evidence did not move.
+- **q08:** right in both runs, so v3's gain over v2 is repeatable. v2 itself has not been repeated.
+- **Latency:** median total 2.39 s, retrieval 1.07 s, Gemini 1.35 s. Gemini is 65% of total time across all questions. The slowest question (q32, 30.2 s) spent 29.1 s in Gemini.
+- **Run 1's 19.95 s:** the same retrieval code now gives 2.39 s, so hybrid search is not the cause. Run 1 did not save a split, so the cause stays unconfirmed; temporary Gemini slowness or retries are possible.
+
+Verdict: v3 is the best version, Correct 37/39 in both runs by hand. The remaining failures are q22 (the answer chunk is not retrieved in the top 5), and q02 and q39 (generation, Day 5).
 
 ## Day 3 error analysis of v0_run3
 

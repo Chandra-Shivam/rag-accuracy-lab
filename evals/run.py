@@ -60,7 +60,7 @@ def score_question(q):
     faithful = judge_faithfulness(result["context"], result["answer"])
     row = {"id": q["id"], "type": q["type"], "question": q["question"], "expected": q["answer"],
            "answer": result["answer"], "context": result["context"], "sources": result["sources"],
-           "latency": result["latency"], "tokens": result["tokens"],
+           "latency": result["latency"], "retrieval_latency": result["retrieval_latency"], "tokens": result["tokens"],
            "faithful": faithful.label == "supported", "faithful_reason": faithful.reason}
 
     if q["type"] == "unanswerable":
