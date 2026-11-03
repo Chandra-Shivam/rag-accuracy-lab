@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from rag.rerank import get_model as get_reranker, rerank
 from rag.store import get_store
 
 LLM_MODEL = "gemini-3.5-flash-lite"
@@ -18,6 +19,7 @@ LLM_MODEL = "gemini-3.5-flash-lite"
 # Shared with the judges, because they use the same model and the same quota.
 RATE_LIMITER = InMemoryRateLimiter(requests_per_second=0.2)
 K = 5
+CANDIDATES = 20  # chunks fetched from Pinecone for the re-ranker; None turns re-ranking off
 PROMPT = """Answer the question using the context below.
 
 Context:
@@ -47,9 +49,13 @@ def _get_llm():
     return _llm
 
 
-def retrieve(question, k=K):
-    """Top-k search only, no LLM. Returns (context text for the prompt, sources)."""
-    matches = _get_store().similarity_search_with_score(question, k=k)
+def retrieve(question, k=K, candidates=CANDIDATES):
+    """Search and optional re-rank, no LLM. Returns (context text for the prompt, sources)."""
+    if candidates:
+        found = _get_store().similarity_search_with_score(question, k=candidates)
+        matches = rerank(question, [doc for doc, _ in found], k)
+    else:
+        matches = _get_store().similarity_search_with_score(question, k=k)
     context = "\n\n---\n\n".join(doc.page_content for doc, _ in matches)
     # sources = retrieved chunks in rank order (rank 1 first); hit@k and MRR are computed from these.
     sources = [
@@ -64,6 +70,7 @@ def answer(question, k=K):
     # Set-up and the wait for quota happen before the clock starts: latency should measure
     # the system, not one-time loading or our free-tier limit.
     _get_store()
+    get_reranker()
     llm = _get_llm()
     RATE_LIMITER.acquire()
     start = time.perf_counter()

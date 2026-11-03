@@ -4,6 +4,7 @@ Usage: python evals/run.py                     (all questions, saved to evals/re
        python evals/run.py --run v0_run2       (same, saved under another name)
        python evals/run.py <case_id>           (one question, not saved)
        python evals/run.py --retrieval-only    (hit@k and MRR only, no Gemini calls, not saved)
+       python evals/run.py --retrieval-only --candidates 20    (same, re-ranking 20 chunks; 0 = off)
 A full run makes about 150 Gemini calls. If it stops (e.g. daily quota), the same command
 continues it, skipping the questions already saved.
 Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
@@ -20,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 
 from evals.judge import judge_abstention, judge_correctness, judge_faithfulness
 from evals.metrics import is_hit, reciprocal_rank, summarize
-from rag.answer import K, answer, retrieve
+from rag.answer import CANDIDATES, K, answer, retrieve
 
 GOLDEN = ROOT / "evals" / "golden.jsonl"
 RESULTS = ROOT / "evals" / "results"
@@ -35,9 +36,9 @@ def load_golden(case_id=None):
     return rows
 
 
-def score_retrieval(q):
+def score_retrieval(q, candidates=CANDIDATES):
     """Retrieval metrics for one answerable question. Needs no LLM."""
-    _, sources = retrieve(q["question"])
+    _, sources = retrieve(q["question"], candidates=candidates)
     return {"id": q["id"], "type": q["type"], "sources": sources,
             "hit": is_hit(q["gold"], sources), "rr": reciprocal_rank(q["gold"], sources)}
 
@@ -99,11 +100,13 @@ def main():
     parser.add_argument("case_id", nargs="?", help="run one question, without saving")
     parser.add_argument("--run", default="v0", help="name of the results file")
     parser.add_argument("--retrieval-only", action="store_true", help="hit@k and MRR only, no Gemini calls")
+    parser.add_argument("--candidates", type=int, default=CANDIDATES,
+                        help="with --retrieval-only: chunks to re-rank; 0 turns re-ranking off")
     args = parser.parse_args()
     questions = load_golden(args.case_id)
 
     if args.retrieval_only:
-        rows = [score_retrieval(q) for q in questions if q["type"] != "unanswerable"]
+        rows = [score_retrieval(q, args.candidates) for q in questions if q["type"] != "unanswerable"]
         for r in rows:
             print_row(r)
     elif args.case_id:

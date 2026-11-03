@@ -106,5 +106,10 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **LangSmith 403:** a new API key fixed it. The old key failed on read and write, so the problem was the key, not the tracing code.
 - **Dataset upload: script or UI?** The UI also works. A script is repeatable, keeps the steps in git, and maps fields the same way each time.
 - **LangSmith scripts:** `evals/langsmith_upload.py` uploads the golden set as dataset `irs-golden-v1`. `evals/langsmith_experiment.py <run>` logs a saved run as an experiment, with no Gemini calls. If a score is missing from the UI, check the column settings; the API showed all 7 were stored.
+- **`rag/rerank.py`:** re-scores Pinecone's top chunks with a local cross-encoder and keeps the best k. `score_pairs` is an optional scorer so tests can skip the model. `run.py --retrieval-only --candidates N` tests it without Gemini; 0 turns it off.
+- **v1 re-ranking:** Hit@5 0.795 to 0.897, Correct 0.769 to 0.846. It can also hurt: q24 lost the chunk with the 6.0% rate. Most of the latency rise was Gemini time, not the re-ranker.
+- **Real regression vs noise?** Regression = a question gets worse after a change. Call it real when a repeatable cause explains it: q24 was right in all 3 v0 runs, then re-ranking removed the "6.0" text from its context. Hit@5 stayed true, so only the per-question check showed it.
+- **v1 run 2:** same contexts, Correct 0.872, Abstain 0.818. q24 is a judge false pass (the answer still lacks 6.0%) and q40 looks like judge noise, so read the answer before trusting a flip. Median latency fell back to 1.97 s, so re-ranking didn't cause run 1's jump.
+- **How do you know an eval can be trusted?** Check each layer: golden set (quotes verified), metric code (unit tests), judges (hand labels, repeat for stability), noise floor (repeat runs), flips (read the answers). It lowers the risk but doesn't prove the eval is right.
 - **Gemini free-tier limits:** 15 requests per minute and 500 per day per model. A full eval is about 150 calls.
 - **q30 golden fix:** the answer now lists all three fax cases from iss4.pdf p2. The old one left out 855-641-6935.

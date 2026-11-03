@@ -7,6 +7,53 @@ Every change is measured on the same golden set. One change per row.
 | v0 | Naive baseline | 0.795 | 0.597 | 0.795 | 0.940 | 0.909 | 4.18 | 1460 | Run 1 of 2, after the q44 fix; n=39 answerable, 11 unanswerable; median latency 2.07 s |
 | v0 | Same code, run 2 (noise check) | 0.795 | 0.597 | 0.795 | 0.900 | 0.909 | 1.78 | 1462 | No change to code or questions; median latency 1.71 s |
 | v0 | Run 3, final judge rules and golden answers (**baseline**) | 0.795 | 0.597 | 0.769 | 0.880 | 0.909 | 1.93 | 1467 | Compare later versions with this row; median latency 1.92 s |
+| v1 | Re-ranking, 20 candidates, ms-marco-MiniLM-L-6-v2 | 0.897 | 0.722 | 0.846 | 0.960 | 0.909 | 5.86 | 1440 | Run 1; median latency 6.16 s, but most of the rise is Gemini time, not re-ranking (see Day 4 notes) |
+| v1 | Same code, run 2 (noise check) | 0.897 | 0.722 | 0.872 | 0.940 | 0.818 | 3.07 | 1438 | No change to code or questions; median latency 1.97 s. q24's Correct and q40's Abstain look like judge errors (see Day 4 notes) |
+
+## Day 4 re-ranking
+
+Change: fetch more chunks from Pinecone, re-score them with `cross-encoder/ms-marco-MiniLM-L-6-v2`, keep the best 5.
+
+Prediction (written before the run): Hit@5 36/39, MRR 0.8. 50 candidates beat 20, and the number can be reduced later if 50 is too many.
+
+Retrieval-only result (no answers or judges yet):
+
+| Candidates | Hit@5 | MRR | Median retrieval time, 30 questions |
+|---|---|---|---|
+| Off (v0) | 0.795 (31/39) | 0.597 | 0.35 s |
+| 20 | 0.897 (35/39) | 0.722 | 0.53 s |
+| 50 | 0.897 (35/39) | 0.721 | 0.64 s |
+
+- **Fixed misses:** q01, q02, q03, q27, q36. The gold chunk for q02 is now at rank 5.
+- **Still missing:** q08 and q20 (gold chunks below 50 for search), q22 (gold chunks are in the top 20, but the re-ranker does not put them in the top 5).
+- **New miss, q44:** the top 5 holds other copies of the "Digital assets are not accepted" sentence, not gold page p509 p13. This looks like the false miss noted when q44 was moved, not a real loss.
+- **Not fixed behind the hit:** q15 and q35 count as hits, but the Table 2 chunk with the needed values is still outside the top 5, so their answers will probably stay wrong.
+
+Decision: 20 candidates, since the scores match 50 and it is faster.
+
+Prediction for the full eval with 20 candidates (written before the run): Correct 35/39, Faithful 46/50, Abstain 11/11.
+
+Result (`evals/results/v1_rerank20.jsonl`): Correct 33/39 (0.846), Faithful 48/50 (0.960), Abstain 10/11 (0.909). Wrong: q02, q08, q15, q22, q24, q35. Unfaithful: q12, q48.
+
+- **Correct gains:** q27 and q36 (the gold page is now retrieved) and q20 (a hit@5 miss, but the answer is right from another page). q37 also flipped back; it was right in v0 runs 1 and 2, so that is probably noise, not re-ranking.
+- **Correct loss, q24:** a real regression. Re-ranking moved the chunk with the 6.0% rate out of the context, and the answer gives only 0.6%.
+- **q02:** the gold chunk is now in the context, but the answer still leaves out 2026 in this run.
+- **Unchanged:** q15 and q35 still lack the Table 2 value, and q39 still does not abstain. Its answer also looks unsupported, as in v0, so its faithful verdict here is doubtful.
+- **Faithful:** q48 and q12 look like too-strict verdicts. The rise to 0.960 is just above the v0 range of 0.880 to 0.940, so it is not clear evidence yet.
+- **Latency:** a 5-question check gave retrieval about 0.6 s and Gemini about 4 to 6 s, with tracing on or off. So tracing and re-ranking don't explain the jump. Gemini was about this slow in this session, but the cause is unknown, so v0 and v1 latency can't be compared fairly yet.
+
+Prediction for run 2 (written before the run): the same scores as run 1, with q24 wrong and q37 right.
+
+Result (`evals/results/v1_rerank20_run2.jsonl`): Correct 34/39 (0.872), Faithful 47/50 (0.940), Abstain 9/11 (0.818). Wrong: q02, q08, q15, q22, q35. Unfaithful: q01, q39, q48. Not abstained: q39, q40. Hit@5 and MRR did not move, and all 50 contexts match run 1.
+
+- **Correct, q24 flipped to right, but this looks like a false pass:** the answer still gives only 0.6%, as in run 1. The judge's reason says the 6.0% is "implicitly understood", but it is not in the answer or the context. By hand, Correct is 33/39 in both runs (only q24 was hand-checked).
+- **Abstain, q40 flipped to answered:** both runs say the number is not in the context and then give the same TAS phone line, so this looks like judge noise, not a real drop.
+- **Faithful flips:** q39 is now unfaithful, which fits the doubt from run 1. q12 is now faithful. q01's new unfaithful verdict looks too strict, but it was not checked against the context.
+- **Stable in both runs:** the gains on q20, q27 and q36. q37 is also right in both runs, but it was right in v0 runs 1 and 2, so that does not show re-ranking helped it.
+- **q02:** still leaves out the year for April 15 in both runs, even with the gold chunk in the context. Treat it as a generation problem for Day 5.
+- **Latency:** the median fell back from 6.16 s to 1.97 s with the same code, against 1.92 s for v0. So the run 1 rise was not caused by re-ranking. The mean is still higher (3.07 s against 1.93 s), with slow answers of up to 12.29 s, and those were not investigated.
+
+Verdict: re-ranking is a real retrieval gain (Hit@5 0.795 to 0.897, repeatable). Correct rose about 3 questions by hand count, above the noise floor of about 2. The Faithful rise overlaps the v0 range, so it is not proven. q24 is still a real loss, which the Correct score in run 2 hides.
 
 ## Day 3 error analysis of v0_run3
 
