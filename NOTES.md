@@ -98,5 +98,8 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **`evals/stability.py`:** judges the 6 flipped questions' saved answers 3 times each (36 calls). The answer text is fixed, so a changed verdict is judge noise.
 - **Stability result:** 9/12 stable. Correctness 4/4, faithfulness 5/8, so faithfulness is the noisier judge. Stable does not mean right.
 - **Correctness rule 4:** numbers and dates must be exact, including the year when the expected answer gives one. Two "year optional" wordings failed on q02, so q02 counts as wrong unless the answer gives 2026. Check it again on Day 4.
+- **`evals/compare.py`:** `python evals/compare.py v0 v0_run2` compares two saved runs and lists each question that flipped. No Gemini calls.
+- **What is `metric` in compare.py?** Just a key name, such as `"correct"`, used to read a saved value. `score_question()` in `evals/run.py` works out the per-question values; `compare.py` only reads them.
+- **v0 baseline:** `evals/results/v0_run3.jsonl` (Correct 0.769, Faithful 0.880). q37 had the right numbers and the wrong conclusion, so generation can also fail when retrieval is right.
 - **Gemini free-tier limits:** 15 requests per minute and 500 per day per model. A full eval is about 150 calls.
 - **q30 golden fix:** the answer now lists all three fax cases from iss4.pdf p2. The old one left out 855-641-6935.

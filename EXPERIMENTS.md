@@ -6,6 +6,7 @@ Every change is measured on the same golden set. One change per row.
 |---|---|---|---|---|---|---|---|---|---|
 | v0 | Naive baseline | 0.795 | 0.597 | 0.795 | 0.940 | 0.909 | 4.18 | 1460 | Run 1 of 2, after the q44 fix; n=39 answerable, 11 unanswerable; median latency 2.07 s |
 | v0 | Same code, run 2 (noise check) | 0.795 | 0.597 | 0.795 | 0.900 | 0.909 | 1.78 | 1462 | No change to code or questions; median latency 1.71 s |
+| v0 | Run 3, final judge rules and golden answers (**baseline**) | 0.795 | 0.597 | 0.769 | 0.880 | 0.909 | 1.93 | 1467 | Compare later versions with this row; median latency 1.92 s |
 
 ## Day 3 noise check: v0 run 1 vs run 2
 
@@ -43,7 +44,17 @@ Result: q02 correct on 0 of 6 verdicts; all 6 say incorrect because the year 202
 
 **Rule 4 final decision:** "Numbers and dates must be exact, including the year when the expected answer gives one." q02 now counts as wrong while its answer leaves out 2026. q02 was a retrieval miss, so on Day 4 check whether better retrieval brings the year into the answer. No prediction was taken for this small re-check.
 
-Result under the final rule: q02 incorrect on 6 of 6 verdicts. The correctness calibration did not finish: it stopped after q01 and q05 (both agree) on the free-tier limit of 500 requests per day per model. Re-run it after the quota resets.
+Result under the final rule: q02 incorrect on 6 of 6 verdicts. The correctness calibration did not finish: it stopped after q01 and q05 (both agree) on the free-tier limit of 500 requests per day per model. Re-run with a new API key: 10/10 agreement, 10/10 stable under the final rule.
+
+**Prediction for v0_run3 (written before the run):** Hit@5 0.795, MRR 0.597, Correct 32/39, Faithful 47/50, Abstain 10/11.
+
+Result: Hit@5 0.795, MRR 0.597, Correct 30/39 (0.769), Faithful 44/50 (0.880), Abstain 10/11 (0.909). Same context as run 1 on 50/50 questions.
+Wrong: q02, q08, q15, q20, q22, q27, q35, q36, q37. Unfaithful: q03, q12, q27, q36, q37, q39.
+
+- **q37 is new:** the answer has both right limits ($5,250 and $7,500) but says educational assistance is higher. Run 2's answer got this right from the same context. This is a generation failure, so not every wrong answer traces to retrieval.
+- **q02 and q30:** q02 is wrong because the year is missing, and q30 is correct against the fixed golden answer, as the rule and golden changes intended.
+- **Faithful range over 3 runs:** 0.880 to 0.940. q12 and q36 changed again, which fits the judge noise seen in the stability test.
+- **Limit of this baseline:** run 3 is the only run under the final rules, so Correct noise comes from one run with the final rules plus the flips seen earlier.
 
 ## Day 3 prediction for the full v0 eval (written before the first full run)
 
