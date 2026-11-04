@@ -12,6 +12,7 @@ from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
 
 from rag.embed import EMBEDDERS
+from rag.ingest import CLEAN
 
 # Named for the embedding model: a different model is a different vector space, so it gets its own index.
 INDEX_NAMES = {"bge": "irs-bge-small-en-v1-5", "gemini": "irs-gemini-embedding-2"}
@@ -26,7 +27,8 @@ UPSERT_BATCH = 16
 def get_index(embedder=EMBEDDER):
     load_dotenv()
     pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
-    name = INDEX_NAMES[embedder]
+    # Different chunks need their own index too.
+    name = INDEX_NAMES[embedder] + (f"-clean-{CLEAN}" if CLEAN else "")
     if not pc.has_index(name):
         pc.create_index(name=name, dimension=EMBEDDERS[embedder].dimensions, metric="cosine", spec=SPEC)
     return pc.Index(name)

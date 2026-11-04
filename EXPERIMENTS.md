@@ -170,6 +170,30 @@ Result (`evals/results/v3_hybrid20_run2.jsonl`): Correct 37/39 (0.949), Faithful
 
 Verdict: v3 is the best version, Correct 37/39 in both runs by hand. The remaining failures are q22 (the answer chunk is not retrieved in the top 5), and q02 and q39 (generation, Day 5).
 
+## Day 4 junk cleanup, retest on v3
+
+Change: remove the print-proof header, either before cutting (every later cut on the page moves, 1,663 chunks) or after cutting (cuts stay, 1,714 chunks, 280 changed). Everything else as in v3. Each has its own bge index. This separates the header's effect from the moved cuts, which option B mixed together.
+
+Prediction for retrieval-only (written before the run):
+- Clean after: Hit@5 0.9, MRR 0.7, Evidence 37/39, q22 gets its evidence.
+- Clean before: Hit@5 0.821, MRR 0.635, Evidence 34/39, q22 does not.
+
+Rule set before the run: keep cleanup only if Hit@5, MRR and Evidence aren't worse and no question is lost.
+
+Retrieval-only result, no Gemini calls:
+
+| Version | Chunks | Hit@5 | MRR | Evidence | Questions with a changed MRR | Hit or Evidence changes against v3 |
+|---|---|---|---|---|---|---|
+| v3, no cleanup | 1,714 | 0.974 | 0.776 | 37/39 | | |
+| Clean after cutting | 1,714 | 0.949 | 0.763 | 36/39 | 3 | q01 lost |
+| Clean before cutting | 1,663 | 0.897 | 0.694 | 34/39 | 15 | q01, q17, q34 lost; q02 loses evidence; q10 gains evidence |
+
+- **Moved cuts did most of the damage:** q17, q34 and q02 change only when the cuts move, and most MRR changes appear only then. So most of option B's losses came from moved cuts, not from removing the junk.
+- **q01:** its gold chunk `fw4.pdf:1:2` has no header, and its re-rank score is unchanged (2.32). Another chunk, `p15t.pdf:4:0`, lost its header and rose from 1.62 to 3.60, pushing the gold chunk from position 5 to 6. So cleanup made a competing chunk score higher. q01 was right in v0 even as a miss, so its answer may stay right; not tested.
+- **q22:** still no evidence in either version.
+
+Verdict: cleanup is not kept, under the rule set before the run. Removing the junk itself did little harm (one question, by one position) and brought no gain. No full eval was run, so its effect on Correct is unknown.
+
 ## Day 4 embedding swap
 
 Change: `gemini-embedding-2` (3,072 dimensions) replaces bge-small in vector search, with its own index `irs-gemini-embedding-2`. Same 1,714 chunks. BM25, RRF, re-ranking and neighbours stay as in v3.
