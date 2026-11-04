@@ -80,7 +80,7 @@ def retrieve(question, k=K, candidates=CANDIDATES, window=WINDOW, hybrid=HYBRID_
     return context, sources
 
 
-def answer(question, k=K):
+def answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
     # Set-up and the wait for quota happen before the clock starts: latency should measure
     # the system, not one-time loading or our free-tier limit.
     _get_store()
@@ -89,7 +89,7 @@ def answer(question, k=K):
     llm = _get_llm()
     RATE_LIMITER.acquire()
     start = time.perf_counter()
-    context, sources = retrieve(question, k=k)
+    context, sources = retrieve(question, k=k, candidates=candidates, hybrid=hybrid)
     retrieval_latency = time.perf_counter() - start
     reply = llm.invoke(PROMPT.format(context=context, question=question))
     latency = time.perf_counter() - start

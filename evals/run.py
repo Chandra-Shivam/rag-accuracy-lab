@@ -8,6 +8,8 @@ Usage: python evals/run.py                     (all questions, saved to evals/re
        python evals/run.py --retrieval-only --window 0         (same, without neighbouring chunks)
        python evals/run.py --retrieval-only --hybrid 50        (same, 50 chunks from each search; 0 = vector only)
        python evals/run.py --retrieval-only --hybrid 0 --candidates 20    (same, as v2)
+       EMBEDDER=gemini python evals/run.py --retrieval-only    (same, using the Gemini embedding index)
+       EMBEDDER=gemini python evals/run.py --run v4 --hybrid 0 --candidates 20    (full run with these settings)
 A full run makes about 150 Gemini calls. If it stops (e.g. daily quota), the same command
 continues it, skipping the questions already saved.
 Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
@@ -54,9 +56,9 @@ def score_retrieval(q, candidates=CANDIDATES, window=WINDOW, hybrid=HYBRID_N):
             "evidence": evidence_found(q["evidence"], context)}
 
 
-def score_question(q):
+def score_question(q, candidates=CANDIDATES, hybrid=HYBRID_N):
     """Runs one question through the system and the judges that apply to its type."""
-    result = answer(q["question"])
+    result = answer(q["question"], candidates=candidates, hybrid=hybrid)
     faithful = judge_faithfulness(result["context"], result["answer"])
     row = {"id": q["id"], "type": q["type"], "question": q["question"], "expected": q["answer"],
            "answer": result["answer"], "context": result["context"], "sources": result["sources"],
@@ -113,11 +115,11 @@ def main():
     parser.add_argument("--run", default="v0", help="name of the results file")
     parser.add_argument("--retrieval-only", action="store_true", help="hit@k and MRR only, no Gemini calls")
     parser.add_argument("--candidates", type=int, default=CANDIDATES,
-                        help="with --retrieval-only: chunks to re-rank; 0 turns re-ranking off")
+                        help="chunks to re-rank; 0 turns re-ranking off")
     parser.add_argument("--window", type=int, default=WINDOW,
                         help="with --retrieval-only: neighbouring chunks on each side; 0 turns this off")
     parser.add_argument("--hybrid", type=int, default=HYBRID_N,
-                        help="with --retrieval-only: chunks from each search before fusion; 0 = vector only")
+                        help="chunks from each search before fusion; 0 = vector only")
     args = parser.parse_args()
     questions = load_golden(args.case_id)
 
@@ -127,7 +129,7 @@ def main():
         for r in rows:
             print_row(r)
     elif args.case_id:
-        rows = [score_question(q) for q in questions]
+        rows = [score_question(q, args.candidates, args.hybrid) for q in questions]
         for r in rows:
             print_row(r)
     else:
@@ -141,7 +143,7 @@ def main():
         for q in questions:
             if q["id"] in done:
                 continue
-            r = score_question(q)
+            r = score_question(q, args.candidates, args.hybrid)
             with path.open("a") as f:
                 f.write(json.dumps(r) + "\n")
             rows.append(r)

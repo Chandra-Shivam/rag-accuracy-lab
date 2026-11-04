@@ -12,6 +12,7 @@ Every change is measured on the same golden set. One change per row.
 | v2 | Neighbouring chunks, same page, window 1 | 0.897 | 0.722 | 0.923 | 1.000 | 0.909 | 3.46 | 3357 | Run 1; median latency 2.50 s; Evidence 0.897, up from 0.667 (see Day 4 notes) |
 | v3 | Hybrid search, BM25 + RRF, 20 from each search, 40 candidates | 0.974 | 0.776 | 0.923 | 1.000 | 0.909 | 23.81 | 3375 | Run 1; Evidence 0.949. By hand Correct is 37/39 (q31 is a judge false fail). Median latency 19.95 s, not repeated in run 2 (see Day 4 notes) |
 | v3 | Same code, run 2 (noise check) | 0.974 | 0.776 | 0.949 | 1.000 | 0.909 | 3.27 | 3374 | No change to retrieval or questions; median latency 2.39 s, of which retrieval 1.07 s and Gemini 1.35 s. q31 is now correct, so the judge agrees with the hand count (see Day 4 notes) |
+| v4 | Embedding swap: gemini-embedding-2, re-rank 20, no BM25 | 1.000 | 0.787 | 0.949 | 1.000 | 0.909 | 5.78 | 3390 | Run 1; Evidence 0.974. No Correct, Faithful or Abstain flips against v3 run 2. Median latency 3.93 s, of which retrieval 2.11 s and Gemini 1.34 s (see Day 4 notes) |
 
 ## Day 4 re-ranking
 
@@ -168,6 +169,41 @@ Result (`evals/results/v3_hybrid20_run2.jsonl`): Correct 37/39 (0.949), Faithful
 - **Run 1's 19.95 s:** the same retrieval code now gives 2.39 s, so hybrid search is not the cause. Run 1 did not save a split, so the cause stays unconfirmed; temporary Gemini slowness or retries are possible.
 
 Verdict: v3 is the best version, Correct 37/39 in both runs by hand. The remaining failures are q22 (the answer chunk is not retrieved in the top 5), and q02 and q39 (generation, Day 5).
+
+## Day 4 embedding swap
+
+Change: `gemini-embedding-2` (3,072 dimensions) replaces bge-small in vector search, with its own index `irs-gemini-embedding-2`. Same 1,714 chunks. BM25, RRF, re-ranking and neighbours stay as in v3.
+
+Prediction for retrieval-only (written before the run): Hit@5 0.974, MRR 0.82, Evidence 37/39, q22 hit with evidence.
+
+Indexing: 1,714 vectors, every chunk checked present with identical text. It hit three free-tier limits: 100 texts per minute, 30,000 tokens per minute and 1,000 texts per day. A second key was used to finish it the same day.
+
+Retrieval-only result, neighbours on (window 1) in every row, no answer or judge calls:
+
+| Search setup | bge Hit@5 | bge MRR | bge Evidence | Gemini Hit@5 | Gemini MRR | Gemini Evidence |
+|---|---|---|---|---|---|---|
+| Vector only | 0.795 | 0.597 | 30/39 | 0.846 | 0.729 | 32/39 |
+| Vector + re-rank 20 | 0.897 | 0.722 | 35/39 (v2) | **1.000** | **0.787** | **38/39** |
+| Hybrid + re-rank 40 | 0.974 | 0.776 | 37/39 (v3) | 0.974 | 0.768 | 37/39 |
+
+- **The planned swap (Gemini inside v3's setup):** no gain. Only q12 and q21 moved, in MRR.
+- **BM25 masked the model difference:** Gemini is better without BM25, and adding BM25 lowers it. bge needs BM25 to find q08 and q20; Gemini finds them with vector search.
+- **Gemini + re-rank 20 against v3:** q10 gains evidence, q44 becomes a hit, q12 and q01 rise in MRR, q21 falls.
+- **q22:** still no evidence in any setup. The hit comes from `fw4.pdf:4:0`, and the answer is in `4:2`.
+- **Cost:** median retrieval was 2.16 s to 2.91 s with Gemini (timed on one run each, so noisy), against 1.07 s for v3. Every question needs an API call, and the free tier allows 1,000 per day. Chunks also go to Google.
+- **Limit:** setups were compared on the same 39 questions, and one question is about 2.6 points.
+
+Verdict: not decided. Gemini + re-rank 20 is the best retrieval so far, but q02 (generation) and q22 stay wrong, and q10 and q44 were already right, so Correct may not rise. No full eval yet.
+
+Prediction for the full eval on Gemini + re-rank 20 (written before the run): Correct 38/39, Faithful 50/50, Abstain 10/11, median latency 3 s, q02 wrong, q22 a false hit.
+
+Result (`evals/results/v4_gemini_rerank20.jsonl`): Correct 37/39 (0.949), Faithful 50/50 (1.000), Abstain 10/11 (0.909), mean tokens 3,390. Wrong: q02, q22. Not abstained: q39. The run stopped at question 12 on the daily limit of 500 answer-model requests and continued after the reset, with the same settings.
+
+- **No flips against v3 run 2** on Correct, Faithful or Abstain. Better retrieval did not change any answer's verdict: q10 and q44 were already right, and q22 still lacks its evidence.
+- **q22:** the answer says the worksheet has no state and local tax line, because `fw4.pdf:4:2` is not in the context.
+- **Latency:** median 3.93 s against 2.39 s for v3 run 2. Retrieval is 2.11 s against 1.07 s, and the Gemini answer step is about the same (1.34 s against 1.35 s).
+
+Verdict: no measured gain in answers, at higher latency, with an API call per question, a daily limit and all chunks sent to Google. Decision: keep v3 (bge + hybrid) as the default. It is one run, and the Gemini index stays for later comparisons.
 
 ## Day 3 error analysis of v0_run3
 
