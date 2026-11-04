@@ -170,6 +170,14 @@ Result (`evals/results/v3_hybrid20_run2.jsonl`): Correct 37/39 (0.949), Faithful
 
 Verdict: v3 is the best version, Correct 37/39 in both runs by hand. The remaining failures are q22 (the answer chunk is not retrieved in the top 5), and q02 and q39 (generation, Day 5).
 
+## Day 4 check: which change surprised you, and why?
+
+Answer: the recursive splitter did not perform as expected, fixed chunking did better than expected, cleaning the junk brought no significant improvement, and Gemini did better without BM25.
+
+Follow-up on what the data supports:
+- Recursive tied v1 on Hit@5 (0.897) and was just below on MRR (0.716 against 0.722). The worst retrieval result was junk cleanup before cutting on v1 (0.821, 0.635). Our PDF text has no blank lines, so recursive could only cut at line ends, which makes this a weak test of structure-aware chunking.
+- A better embedding model raised retrieval (vector only: Hit@5 0.795 to 0.846, MRR 0.597 to 0.729), but Correct stayed 37/39. One model pair on 39 questions doesn't show that bigger models keep helping.
+
 ## Day 4 junk cleanup, retest on v3
 
 Change: remove the print-proof header, either before cutting (every later cut on the page moves, 1,663 chunks) or after cutting (cuts stay, 1,714 chunks, 280 changed). Everything else as in v3. Each has its own bge index. This separates the header's effect from the moved cuts, which option B mixed together.
