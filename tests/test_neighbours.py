@@ -1,6 +1,6 @@
 """Pins which neighbouring chunks are fetched and how they join, without Pinecone."""
 
-from rag.neighbours import SEPARATOR, join_chunks, neighbour_ids
+from rag.neighbours import SEPARATOR, join_chunks, label, neighbour_ids
 
 
 def source(page, index, name="a.pdf"):
@@ -28,19 +28,23 @@ def test_overlapping_windows_give_no_duplicates():
     assert neighbour_ids([source(7, 1), source(7, 2)], 1) == ["a.pdf:7:0", "a.pdf:7:1", "a.pdf:7:2", "a.pdf:7:3"]
 
 
+def test_label_shows_a_whole_page_number():
+    assert label("a.pdf", 7.0) == "[a.pdf, page 7]\n"
+
+
 def test_join_sorts_into_reading_order_by_number_not_text():
     records = [record(7, 10, "c"), record(7, 2, "a"), record(7, 3, "b")]
-    assert join_chunks(records) == "ab" + SEPARATOR + "c"
+    assert join_chunks(records) == "[a.pdf, page 7]\nab" + SEPARATOR + "[a.pdf, page 7]\nc"
 
 
-def test_next_door_chunks_join_with_no_separator():
-    assert join_chunks([record(7, 0, "Week"), record(7, 1, "ly")]) == "Weekly"
+def test_next_door_chunks_join_with_no_separator_and_one_label():
+    assert join_chunks([record(7, 0, "Week"), record(7, 1, "ly")]) == "[a.pdf, page 7]\nWeekly"
 
 
-def test_separator_between_gaps_pages_and_documents():
-    assert join_chunks([record(7, 0, "a"), record(7, 2, "b")]) == "a" + SEPARATOR + "b"
-    assert join_chunks([record(7, 5, "a"), record(8, 0, "b")]) == "a" + SEPARATOR + "b"
-    assert join_chunks([record(7, 0, "a"), record(7, 1, "b", "b.pdf")]) == "a" + SEPARATOR + "b"
+def test_each_block_gets_its_own_label_across_gaps_pages_and_documents():
+    assert join_chunks([record(7, 0, "a"), record(7, 2, "b")]) == "[a.pdf, page 7]\na" + SEPARATOR + "[a.pdf, page 7]\nb"
+    assert join_chunks([record(7, 5, "a"), record(8, 0, "b")]) == "[a.pdf, page 7]\na" + SEPARATOR + "[a.pdf, page 8]\nb"
+    assert join_chunks([record(7, 0, "a"), record(7, 1, "b", "b.pdf")]) == "[a.pdf, page 7]\na" + SEPARATOR + "[b.pdf, page 7]\nb"
 
 
 def test_no_records_gives_empty_context():

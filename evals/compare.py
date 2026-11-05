@@ -25,6 +25,11 @@ def load_run(name):
     return {r["id"]: r for r in map(json.loads, path.read_text().splitlines())}
 
 
+def scored_in_both(before, after, metric):
+    """Questions with this metric in both runs. Exact refusals have no faithful score from v6 on."""
+    return sorted(qid for qid in before.keys() & after.keys() if metric in before[qid] and metric in after[qid])
+
+
 def find_flips(before, after, metric):
     """Returns (id, before value, after value) for questions scored in both runs whose value changed."""
     return [(qid, before[qid][metric], after[qid][metric]) for qid in sorted(before.keys() & after.keys())
@@ -42,14 +47,15 @@ def main():
         print(f"in only one run, not compared: {' '.join(only_one)}")
 
     shared = before.keys() & after.keys()
-    summary_a = summarize([before[qid] for qid in shared])
-    summary_b = summarize([after[qid] for qid in shared])
     print(f"{name_a} -> {name_b}, {len(shared)} questions")
     for metric in METRICS:
-        if summary_a[metric] is None or summary_b[metric] is None:
+        scored = scored_in_both(before, after, metric)
+        if not scored:
             continue
+        mean_a = summarize([before[qid] for qid in scored])[metric]
+        mean_b = summarize([after[qid] for qid in scored])[metric]
         flips = find_flips(before, after, metric)
-        print(f"{metric:<10} {summary_a[metric]:.3f} -> {summary_b[metric]:.3f}  flips {len(flips)}")
+        print(f"{metric:<10} {mean_a:.3f} -> {mean_b:.3f}  n={len(scored)}  flips {len(flips)}")
         for qid, value_a, value_b in flips:
             print(f"  {qid}  {value_a} -> {value_b}")
 

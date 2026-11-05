@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 
 from evals.judge import judge_abstention, judge_correctness, judge_faithfulness
 from evals.metrics import evidence_found, is_hit, reciprocal_rank, summarize
-from rag.answer import CANDIDATES, HYBRID_N, K, WINDOW, answer, retrieve
+from rag.answer import CANDIDATES, HYBRID_N, K, WINDOW, answer, is_refusal, retrieve
 
 GOLDEN = ROOT / "evals" / "golden.jsonl"
 EVIDENCE = ROOT / "evals" / "golden_evidence.jsonl"
@@ -59,11 +59,14 @@ def score_retrieval(q, candidates=CANDIDATES, window=WINDOW, hybrid=HYBRID_N):
 def score_question(q, candidates=CANDIDATES, hybrid=HYBRID_N):
     """Runs one question through the system and the judges that apply to its type."""
     result = answer(q["question"], candidates=candidates, hybrid=hybrid)
-    faithful = judge_faithfulness(result["context"], result["answer"])
     row = {"id": q["id"], "type": q["type"], "question": q["question"], "expected": q["answer"],
            "answer": result["answer"], "context": result["context"], "sources": result["sources"],
-           "latency": result["latency"], "retrieval_latency": result["retrieval_latency"], "tokens": result["tokens"],
-           "faithful": faithful.label == "supported", "faithful_reason": faithful.reason}
+           "latency": result["latency"], "retrieval_latency": result["retrieval_latency"], "tokens": result["tokens"]}
+
+    # A refusal makes no factual claim, so Faithful has nothing to check. Abstain and Correct still score it.
+    if not is_refusal(result["answer"]):
+        faithful = judge_faithfulness(result["context"], result["answer"])
+        row.update(faithful=faithful.label == "supported", faithful_reason=faithful.reason)
 
     if q["type"] == "unanswerable":
         abstention = judge_abstention(q["question"], result["answer"])

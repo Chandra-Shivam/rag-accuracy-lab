@@ -13,6 +13,54 @@ Every change is measured on the same golden set. One change per row.
 | v3 | Hybrid search, BM25 + RRF, 20 from each search, 40 candidates | 0.974 | 0.776 | 0.923 | 1.000 | 0.909 | 23.81 | 3375 | Run 1; Evidence 0.949. By hand Correct is 37/39 (q31 is a judge false fail). Median latency 19.95 s, not repeated in run 2 (see Day 4 notes) |
 | v3 | Same code, run 2 (noise check) | 0.974 | 0.776 | 0.949 | 1.000 | 0.909 | 3.27 | 3374 | No change to retrieval or questions; median latency 2.39 s, of which retrieval 1.07 s and Gemini 1.35 s. q31 is now correct, so the judge agrees with the hand count (see Day 4 notes) |
 | v4 | Embedding swap: gemini-embedding-2, re-rank 20, no BM25 | 1.000 | 0.787 | 0.949 | 1.000 | 0.909 | 5.78 | 3390 | Run 1; Evidence 0.974. No Correct, Faithful or Abstain flips against v3 run 2. Median latency 3.93 s, of which retrieval 2.11 s and Gemini 1.34 s (see Day 4 notes) |
+| v5 | Grounding rules, required citations, labelled context | 0.974 | 0.776 | 0.897 | 0.780 | 0.909 | 15.85 | 3552 | Run 1; Evidence 0.949. Most Faithful fails look like a judge problem, not reviewed by the user yet. Median latency 14.69 s, not comparable with v3 (see Day 5 notes) |
+| v6 | Prompt fixes: calculate from the context, one label per bracket | 0.974 | 0.776 | 0.949 | 1.000 | 1.000 | 16.93 | 3575 | Run 1; Evidence 0.949. Faithful is 39/39 because exact refusals skip the judge; v5 on the same rule is 37/39. By hand Correct is 38/39 (q31 looks like a judge false fail). Median latency 7.39 s, not comparable (see Day 5 notes) |
+
+## Day 5 grounding and citations
+
+Change: add `[source, page N]` labels to the context, and rules to the prompt: use only the context, cite each claim, copy dates and amounts exactly, and add a year only when the context makes it clear.
+
+Prediction (written before the run): Correct 39/39, Faithful 50/50, Abstain 10/11.
+
+Result, `evals/results/v5_grounding.jsonl`, against v3 run 2: Correct 35/39, Faithful 39/50, Abstain 10/11. Retrieval has no flips.
+
+**Correct flips**
+- q02 is fixed: the answer now gives April 15, 2026.
+- q34 is a real regression: both limits are in the context, but the model refuses because the increase isn't stated. Rule 1 doesn't allow a calculation.
+- q04 and q44 look like judge false fails, not yet checked by the user. q04 adds a backup withholding exception supported by the context (rule 2 allows extra text). q44 says digital assets aren't accepted, and the question didn't ask about U.S. dollars.
+- q22 stays wrong: its evidence isn't in the context, so the refusal is honest. This is a retrieval problem.
+
+If q04 and q44 are confirmed, Correct by hand is 37/39, the same count as v3 run 2, with q34 replacing q02.
+
+**Faithful flips (11)**
+- `judge_faithfulness()` receives the context and the answer, but not the question. For 8 unanswerable refusals (q40, q41, q43, q46, q47, q48, q49, q50) and q22, it can't tell what the refusal refers to, and several reasons say no question was asked.
+- q01 has the same cause: "complete Step 2" looks unconditional when the judge can't see "I have two jobs".
+- q34 is a real failure: the refusal contradicts the context.
+
+If the other 10 are confirmed as judge problems, Faithful by hand is 49/50.
+
+**Retest: giving the faithfulness judge the question.** Day 3 tried this and removed it. Pass mark: at least 7/8 agreement and 8/8 stable, the level of the accepted judge. Result: agreement 5/8, stable 7/8, so it failed. q15 (all 3 runs): the judge marks the answer down for not fully answering the question, which isn't its job. q27 (all 3 runs): too lenient, the known limitation. q39: flips in 1 of 3 runs. The change was undone.
+
+**Decision: exact refusals skip the Faithful judge.** A refusal makes no factual claim, and Abstain and Correct still score it. A refusal with other claims in it, like q34's, is still judged. Applied to v5's saved verdicts, with no new calls: Faithful 37/39 (0.949), with 11 refusals left out (q22, q40, q41, q42, q43, q45, q46, q47, q48, q49, q50). Fails: q34 (real) and q01 (looks like a judge false fail). From now on Faithful covers fewer than 50 answers, so compare it with earlier rows with care.
+
+**v6 prompt fixes.** Change: add "calculate it" for numbers in the context (q34) and "Cite one label per bracket" (merged citations).
+
+Prediction (written before the run): Correct 38/39, Faithful 39/39 on questions judged in both v5 and v6, Abstain 10/11, q34 fixed.
+
+Result, `evals/results/v6_prompt_fixes.jsonl`: Correct 37/39, Faithful 39/39 (11 exact refusals left out, the same 11 as v5), Abstain 11/11, q34 fixed. Retrieval has no flips. The run took 3 attempts because of Gemini 503 errors, using the resume feature.
+
+- **Correct, against v5:** q34 is fixed by the calculation rule. q44 now mentions U.S. dollars. q04 has nearly the same answer as v5 and now passes, so its v5 fail was judge noise. q31 is new: it gives both default rates, but the judge wants details the question didn't ask for. That looks like a judge false fail, as in v3 run 1. By hand Correct is 38/39, and only q22 is wrong (its evidence isn't in the context).
+- **Abstain:** q39 now refuses and explains why, with citations. No rule was aimed at q39, and one run can't show this will hold, so check it again before task 2 closes.
+- **Citations:** 79 of 84 exactly match a label, up from 62 of 72 in v5. Left: 3 merged citations (q02, q03, q33) and 2 without the word "page" (q14). Task 3's check must handle these.
+- **Latency:** median 7.39 s, of which retrieval 1.52 s and Gemini 5.21 s. Mean 16.93 s. Gemini speed changed a lot during the run, so this isn't a fair measure of the prompt. Mean tokens 3,575.
+
+One run only; the noise floor on Correct is about 2 questions.
+
+**Citations:** 62 of 72 cited brackets exactly match a context label. 9 merge several sources or pages, for example `[p15t.pdf, page 6, p15t.pdf, page 7]`. 1 is not a real source (q04, `[p6, page 6]`). q31 answers with no citation. Task 3's check must handle these.
+
+**Abstention:** still 10/11. q39 still answers. Refusals on answerable questions: q22 and q34.
+
+**Latency:** median 14.69 s, of which retrieval 1.28 s and Gemini 13.38 s. Not comparable with v3 run 2. Just before this run, 3 pairs of calls on the same context gave a median of 11.75 s with the old prompt and 14.84 s with the new one, so Gemini was slow with either prompt. Three pairs are too few to measure the new prompt's own cost. Mean tokens rose from 3,374 to 3,552.
 
 ## Day 4 re-ranking
 
