@@ -1,6 +1,6 @@
 """ANSWERING box of MAP.md: question -> top-k chunks -> Gemini -> answer + sources.
 
-The prompt has grounding and citation rules (Day 5). The code doesn't check citations yet.
+The prompt has grounding and citation rules (Day 5). The code checks the citations and flags bad ones.
 Usage: python -m rag.answer "your question"
 Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
 """
@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from rag.citations import check_citations
 from rag.hybrid import fuse, get_index as get_keyword_index, keyword_search
 from rag.neighbours import SEPARATOR, join_chunks, label, neighbour_ids
 from rag.rerank import get_model as get_reranker, rerank
@@ -106,7 +107,8 @@ def answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
     reply = llm.invoke(PROMPT.format(refusal=REFUSAL, context=context, question=question))
     latency = time.perf_counter() - start
     # context = the exact text the model saw; the faithfulness judge checks the answer against it.
-    return {"answer": reply.text, "sources": sources, "context": context, "latency": round(latency, 3),
+    return {"answer": reply.text, "citations": check_citations(reply.text, context),
+            "sources": sources, "context": context, "latency": round(latency, 3),
             "retrieval_latency": round(retrieval_latency, 3), "tokens": reply.usage_metadata["total_tokens"]}
 
 

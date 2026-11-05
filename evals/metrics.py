@@ -42,7 +42,7 @@ def summarize(rows):
     but no "hit", "rr" or "correct". So every metric gets the right denominator automatically.
     """
     return {key: _mean([r[key] for r in rows if key in r])
-            for key in ("hit", "rr", "evidence", "correct", "faithful", "abstained", "latency", "tokens")}
+            for key in ("hit", "rr", "evidence", "correct", "faithful", "abstained", "citations_ok", "latency", "tokens")}
 
 
 def _mean(values):

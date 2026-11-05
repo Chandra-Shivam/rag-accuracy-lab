@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT))
 from evals.judge import judge_abstention, judge_correctness, judge_faithfulness
 from evals.metrics import evidence_found, is_hit, reciprocal_rank, summarize
 from rag.answer import CANDIDATES, HYBRID_N, K, WINDOW, answer, is_refusal, retrieve
+from rag.citations import citations_ok
 
 GOLDEN = ROOT / "evals" / "golden.jsonl"
 EVIDENCE = ROOT / "evals" / "golden_evidence.jsonl"
@@ -66,7 +67,8 @@ def score_question(q, candidates=CANDIDATES, hybrid=HYBRID_N):
     # A refusal makes no factual claim, so Faithful has nothing to check. Abstain and Correct still score it.
     if not is_refusal(result["answer"]):
         faithful = judge_faithfulness(result["context"], result["answer"])
-        row.update(faithful=faithful.label == "supported", faithful_reason=faithful.reason)
+        row.update(faithful=faithful.label == "supported", faithful_reason=faithful.reason,
+                   citations_ok=citations_ok(result["citations"]), citations_invalid=result["citations"]["invalid"])
 
     if q["type"] == "unanswerable":
         abstention = judge_abstention(q["question"], result["answer"])
@@ -87,7 +89,8 @@ def load_saved(path):
 
 def print_row(r):
     labels = {"hit": ("hit", "MISS"), "evidence": ("evidence", "NO_EVIDENCE"), "correct": ("correct", "WRONG"),
-              "abstained": ("abstained", "ANSWERED"), "faithful": ("faithful", "UNFAITHFUL")}
+              "abstained": ("abstained", "ANSWERED"), "faithful": ("faithful", "UNFAITHFUL"),
+              "citations_ok": ("citations_ok", "BAD_CITATIONS")}
     flags = [labels[key][0 if r[key] else 1] for key in labels if key in r]
     print(f"{r['id']}  {r['type']:<12} {'  '.join(flags)}", flush=True)
     for key, reason in (("correct", "correct_reason"), ("abstained", "abstained_reason"), ("faithful", "faithful_reason")):
@@ -97,7 +100,7 @@ def print_row(r):
 
 def format_summary(s):
     parts = [("hit", f"hit@{K}", ".3f"), ("rr", "MRR", ".3f"), ("evidence", "evidence", ".3f"), ("correct", "correct", ".3f"),
-             ("faithful", "faithful", ".3f"), ("abstained", "abstain", ".3f"),
+             ("faithful", "faithful", ".3f"), ("abstained", "abstain", ".3f"), ("citations_ok", "citations", ".3f"),
              ("latency", "latency", ".2f"), ("tokens", "tokens", ".0f")]
     return "  ".join(f"{name} {s[key]:{fmt}}" for key, name, fmt in parts if s[key] is not None)
 
