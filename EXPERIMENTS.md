@@ -15,6 +15,7 @@ Every change is measured on the same golden set. One change per row.
 | v4 | Embedding swap: gemini-embedding-2, re-rank 20, no BM25 | 1.000 | 0.787 | 0.949 | 1.000 | 0.909 | 5.78 | 3390 | Run 1; Evidence 0.974. No Correct, Faithful or Abstain flips against v3 run 2. Median latency 3.93 s, of which retrieval 2.11 s and Gemini 1.34 s (see Day 4 notes) |
 | v5 | Grounding rules, required citations, labelled context | 0.974 | 0.776 | 0.897 | 0.780 | 0.909 | 15.85 | 3552 | Run 1; Evidence 0.949. Most Faithful fails look like a judge problem, not reviewed by the user yet. Median latency 14.69 s, not comparable with v3 (see Day 5 notes) |
 | v6 | Prompt fixes: calculate from the context, one label per bracket | 0.974 | 0.776 | 0.949 | 1.000 | 1.000 | 16.93 | 3575 | Run 1; Evidence 0.949. Faithful is 39/39 because exact refusals skip the judge; v5 on the same rule is 37/39. By hand Correct is 38/39 (q31 looks like a judge false fail). Median latency 7.39 s, not comparable (see Day 5 notes) |
+| v6 | Same code, run 2 (noise check) | 0.974 | 0.776 | 0.872 | 1.000 | 0.909 | 10.24 | 3578 | Evidence 0.949. Faithful is 38/38 because exact refusals skip the judge. q04 looks like a judge false fail, not confirmed by the user. Median latency 6.20 s, of which retrieval 1.28 s and Gemini 4.89 s |
 
 ## Day 5 grounding and citations
 
@@ -55,6 +56,22 @@ Result, `evals/results/v6_prompt_fixes.jsonl`: Correct 37/39, Faithful 39/39 (11
 - **Latency:** median 7.39 s, of which retrieval 1.52 s and Gemini 5.21 s. Mean 16.93 s. Gemini speed changed a lot during the run, so this isn't a fair measure of the prompt. Mean tokens 3,575.
 
 One run only; the noise floor on Correct is about 2 questions.
+
+**q39 repeat, v6 prompt.** Prediction (written before the run): refuses 2 to 3 times out of 5. Result: refuses 4 out of 5, so it's better than v3 but not reliable. All 4 refusals also mention the general penalty rules, so none is the exact refusal text and Faithful still judges them: 2 supported, 2 not_supported on very similar answers. Not saved to `evals/results/`.
+
+**Score cutoff check, no Gemini calls.** Could a low top re-rank score trigger a refusal? From v6's saved scores: cutoff 0 catches 5/11 unanswerable and wrongly refuses 2/39 answerable; cutoff 2 catches 8/11 and refuses 3/39; cutoff 3 catches 11/11 and refuses 7/39. q39 scores 2.91, the highest of the unanswerable group, because related penalty text exists. The model already refused the other 10 in v6, so a cutoff would add wrong refusals. The lowest useful cutoff for q39 is 2.92, which catches 11/11 but also refuses 4/39 answerable questions that v6 answers correctly (q12, q29, q37, q44). It would also sit only 0.02 below q22's 2.93, so it's fitted to this golden set. These cutoffs are from the golden set, so they would look better here than on new questions.
+
+Decision (task 2): no score cutoff and no rule written for q39. Abstention stays in the prompt, which goes against PLAN.md's suggestion of using retrieval scores. Known risk: q39-style questions, where related text exists but not the answer, may still get answered about 1 time in 5. A repeat run checks that Abstain and Correct hold.
+
+**v6 run 2 (noise check).** No code change. Prediction (written before the run): the same as run 1, Correct 37/39, Faithful 39/39, Abstain 11/11.
+
+Result, `evals/results/v6_prompt_fixes_run2.jsonl`: Correct 34/39 against 37/39, Faithful 38/38 on the questions judged in both, Abstain 10/11 against 11/11. Hit@5, MRR and Evidence have no flips. Median latency 6.20 s (retrieval 1.28 s, Gemini 4.89 s). Citations: 82/85 exact, 3 merged (q33, q35 twice). Gemini returned 429 (quota) after 45 questions, so q46 to q50 were run later on a different API key, with the same model and code.
+
+- **Flips:** q21 dropped the income limits and q44 wrongly refused. q39 answered instead of refusing, the known 1-in-5 risk. q04 looks like a judge false fail: its reason is the backup withholding note, which run 1 also had and passed. Not confirmed by the user.
+- **q21 and q44 repeat, 5 times each.** Prediction (written before the run): each is correct 4 of 5 times, give or take 1. Result: q21 5/5 by the judge and q44 1/5, with Evidence true on all 10.
+  - **q21:** 4 of 5 answers give the income limits. Try 4 leaves them out and passes, while nearly the same answer failed in run 2, so the judge is inconsistent on this omission. Whether the limits are required is not decided.
+  - **q44:** 3 exact refusals, 1 refusal that also states the rule and says the context "does not specifically mention Bitcoin", and 1 correct answer. Run 1's pass was the less common result. v3 had no grounding rules and got q44 right, so this looks like a side effect of grounding: the model doesn't connect Bitcoin to "digital assets".
+- **Noise:** only 22 of 50 answers are word-for-word the same. Correct moved by 3 with no code change, so a difference of 2 or 3 between versions is not enough on its own to show a real change. This includes v5 (35/39) to v6 (37/39), but q34's fix is a specific change that held in run 2.
 
 **Citations:** 62 of 72 cited brackets exactly match a context label. 9 merge several sources or pages, for example `[p15t.pdf, page 6, p15t.pdf, page 7]`. 1 is not a real source (q04, `[p6, page 6]`). q31 answers with no citation. Task 3's check must handle these.
 
