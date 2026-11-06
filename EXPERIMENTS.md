@@ -17,6 +17,25 @@ Every change is measured on the same golden set. One change per row.
 | v6 | Prompt fixes: calculate from the context, one label per bracket | 0.974 | 0.776 | 0.949 | 1.000 | 1.000 | 16.93 | 3575 | Run 1; Evidence 0.949. Faithful is 39/39 because exact refusals skip the judge; v5 on the same rule is 37/39. By hand Correct is 38/39 (q31 looks like a judge false fail). Median latency 7.39 s, not comparable (see Day 5 notes) |
 | v6 | Same code, run 2 (noise check) | 0.974 | 0.776 | 0.872 | 1.000 | 0.909 | 10.24 | 3578 | Evidence 0.949. Faithful is 38/38 because exact refusals skip the judge. q04 looks like a judge false fail, not confirmed by the user. Median latency 6.20 s, of which retrieval 1.28 s and Gemini 4.89 s |
 
+## Final results (Day 5 check)
+
+One row per change. Two numbers (a–b) mean two runs of the same code. Latency is re-timed in one session (`evals/latency.py`); the latency column above is from each run's own day and is not comparable.
+
+| Version | Change | Hit@5 | MRR | Evidence | Correct | Faithful | Abstain | Citations ok | Latency (s) | Tokens/q |
+|---|---|---|---|---|---|---|---|---|---|---|
+| v0 | Naive baseline | 0.795 | 0.597 | 22/39 | 30/39 | 44/50 | 10/11 | n/a | 1.46 | 1467 |
+| v1 | + Re-ranking, 20 candidates | 0.897 | 0.722 | 26/39 | 33–34/39 | 47–48/50 | 9–10/11 | n/a | 1.60 | 1438 |
+| v2 | + Neighbouring chunks | 0.897 | 0.722 | 35/39 | 36/39 | 50/50 | 10/11 | n/a | 2.54 | 3357 |
+| v3 | + Hybrid search, BM25 + RRF | 0.974 | 0.776 | 37/39 | 36–37/39 | 50/50 | 10/11 | n/a | 2.63 | 3374 |
+| v4 | Gemini embeddings instead of BM25 (not kept) | 1.000 | 0.787 | 38/39 | 37/39 | 50/50 | 10/11 | n/a | 3.62 | 3390 |
+| v5 | v3 + grounding, citations, labels | 0.974 | 0.776 | 37/39 | 35/39 | 37/39 | 10/11 | 35/39 | 2.77 | 3552 |
+| v6 (final) | + Calculate rule, one label per bracket | 0.974 | 0.776 | 37/39 | 34–37/39 | 38/38–39/39 | 10–11/11 | 38/38–38/39 | 2.77 | 3575 |
+
+- **Faithful from v5 on** leaves out exact refusals, so it has fewer rows. v5's Faithful is shown under that rule.
+- **Citations ok** counts answers that aren't exact refusals, with at least one citation and all of them valid. v0 to v4 had no citation rule.
+- **Correct by the judge.** By hand: v1 33/39 and v3 37/39; q31 in v6 run 1 and q04 in v6 run 2 look like judge false fails.
+- **Known costs in v6:** q22 (evidence not retrieved), q44 (false refusal, about 4 in 5), q39 (answers about 1 in 5).
+
 ## Day 5 grounding and citations
 
 Change: add `[source, page N]` labels to the context, and rules to the prompt: use only the context, cite each claim, copy dates and amounts exactly, and add a year only when the context makes it clear.
@@ -76,6 +95,26 @@ Result, `evals/results/v6_prompt_fixes_run2.jsonl`: Correct 34/39 against 37/39,
 **Specific-case rule.** Change: rule 1 adds "If the question asks about a specific case of something the context covers, apply what the context says", for q44's false refusals. Repeat of q44 and q39, 5 times each. Prediction (written before the run): q44 correct 4 of 5, q39 refuses 4 of 5. Result: q44 correct 3 of 5 (was 1 of 5), q39 refuses 0 of 5 (was 4 of 5), by the judges. q39 now applies p15's general penalty text to an individual return, which is what the rule asks for, so the rule trades q39's refusal for part of q44's gain. Only 5 tries each, but q39's change is large. Decision: undone. A false refusal is safer than a confident answer that goes beyond the source, so q44 stays a known cost of strict grounding.
 
 **Citation check (flag only), on the saved v6 answers, no Gemini calls.** `evals/check_citations.py` splits merged brackets and matches each citation against that question's context labels. Exact refusals are left out. Prediction (written before the run): 4 to 5 invalid citations in each run. Result: run 1 has 85 valid and 2 invalid, both q14 (`[p15.pdf, 21]`, `[p15b.pdf, 32]`, missing the word "page"); 38 of 39 answers pass. Run 2 has 88 valid and 0 invalid; 38 of 38 answers pass. No full re-run is needed, because the check doesn't change the answers. It shows that each cited source was sent to the model, not that the page supports the claim.
+
+**Latency re-timed in one session (task 4).** `evals/latency.py`, versions taking turns on each question. Prediction (written before the run): v6's retrieval is the slowest median (v6 retrieves as v3), and the v5–v6 prompt takes more Gemini time than v2–v4.
+
+Result, `evals/results/latency_retrieval.jsonl` and `latency_gemini.jsonl`:
+
+| Version | Retrieval median (p95) | Gemini median (p95) | Total, sum of medians | Tokens/q |
+|---|---|---|---|---|
+| v0 | 0.36 s (0.84) | 1.10 s (31.62) | 1.46 s | 1467 |
+| v1 | 0.50 s (0.80) | 1.10 s, as v0 | 1.60 s | 1438 |
+| v2 | 1.11 s (1.21) | 1.43 s (1.64) | 2.54 s | 3357 |
+| v3 | 1.20 s (4.40) | 1.43 s, as v2 | 2.63 s | 3374 |
+| v4 | 2.19 s (4.63) | 1.43 s, as v2 | 3.62 s | 3390 |
+| v5, v6 | 1.20 s, as v3 | 1.57 s (2.53) | 2.77 s | 3575 |
+
+- **Retrieval:** v4 is the slowest, not v3 and v6: the Gemini query embedding is a network call, while bge runs locally. Neighbours (v2) add the most to retrieval, 0.61 s, for the extra Pinecone fetch.
+- **Gemini:** the v5–v6 prompt is slower than v2–v4 on 7 of 10 questions, by 0.14 s at the median. The 5 to 13 s Gemini times in the saved v5 and v6 runs were server load, not the prompt. One v0 call took 22.3 s (q22), the same kind of outlier.
+- **Limits:** the totals add two medians, which is close to but not the same as the median of totals. 10 questions for the Gemini step is a small sample. Tokens/q is from the saved runs.
+- **Cost:** $0 on the free tier. Tokens/q is the cost measure: it more than doubles at v2 (neighbours), and the Day 5 prompt adds about 200.
+
+**Day 5 check: biggest improvement per extra second of latency.** User's first answer: the Day 5 prompt, together with leaving exact refusals out of the Faithful judge. Changed after noting that the Faithful change is in the measuring, not the system. Final answer: hybrid search (v3), because BM25 finds chunks that vector search left out, since their meaning wasn't close enough to the question's.
 
 **Citations:** 62 of 72 cited brackets exactly match a context label. 9 merge several sources or pages, for example `[p15t.pdf, page 6, p15t.pdf, page 7]`. 1 is not a real source (q04, `[p6, page 6]`). q31 answers with no citation. Task 3's check must handle these.
 
