@@ -1,5 +1,7 @@
 """ANSWERING box of MAP.md: question -> top-k chunks -> Gemini -> answer + sources.
 
+answer() returns everything at once (evals, /ask); stream_answer() yields it as it comes (/ask/stream).
+
 The prompt has grounding and citation rules (Day 5). The code checks the citations and flags bad ones.
 Usage: python -m rag.answer "your question"
 Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
@@ -93,14 +95,19 @@ def retrieve(question, k=K, candidates=CANDIDATES, window=WINDOW, hybrid=HYBRID_
     return context, sources
 
 
-def answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
-    # Set-up and the wait for quota happen before the clock starts: latency should measure
-    # the system, not one-time loading or our free-tier limit.
+def _ready():
+    """Loads everything once and waits for quota, so neither function times one-time set-up."""
+    # Latency should measure the system, not one-time loading or our free-tier limit.
     _get_store()
     get_reranker()
     get_keyword_index()
     llm = _get_llm()
     RATE_LIMITER.acquire()
+    return llm
+
+
+def answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
+    llm = _ready()
     start = time.perf_counter()
     context, sources = retrieve(question, k=k, candidates=candidates, hybrid=hybrid)
     retrieval_latency = time.perf_counter() - start
@@ -110,6 +117,20 @@ def answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
     return {"answer": reply.text, "citations": check_citations(reply.text, context),
             "sources": sources, "context": context, "latency": round(latency, 3),
             "retrieval_latency": round(retrieval_latency, 3), "tokens": reply.usage_metadata["total_tokens"]}
+
+
+def stream_answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
+    """Same steps as answer(), but yields (event, data) as they happen: sources, tokens, then done."""
+    llm = _ready()
+    context, sources = retrieve(question, k=k, candidates=candidates, hybrid=hybrid)
+    yield "sources", sources
+    text = ""
+    for chunk in llm.stream(PROMPT.format(refusal=REFUSAL, context=context, question=question)):
+        if chunk.text:
+            text += chunk.text
+            yield "token", chunk.text
+    # The check needs the whole answer, so citations can only come last.
+    yield "done", {"citations": check_citations(text, context)}
 
 
 if __name__ == "__main__":
