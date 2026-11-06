@@ -37,7 +37,8 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 
 ## Rules we fixed on Day 1
 
-- **page** = 1-based page index in the PDF file. Not the printed number, never `page_label`. PyPDFLoader starts at 0, hence the +1.
+- **page** = 1-based page index in the PDF file. Not the printed number, never `page_label`. `load_pages()` counts pages from 1 with `enumerate(..., 1)`.
+- **PDF loader:** `load_pages()` uses `pypdf` directly (`extract_text().strip()`), replacing the deprecated `langchain-community` PyPDFLoader. The chunk file came out byte-for-byte the same, so Pinecone needed no re-indexing.
 - **gold page** = the page where the answer is written. Unanswerable questions have `answer: null`, `gold: []`.
 - **hit@k** = were **all** gold pages in the top-k chunks? Unanswerable questions are skipped (they're measured by abstention).
 - **MRR** = 1 / rank of the first gold page found (0 if none).

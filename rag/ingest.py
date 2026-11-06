@@ -26,16 +26,16 @@ CHUNKS_FILE = ROOT / "data" / (f"chunks-clean-{CLEAN}.jsonl" if CLEAN else "chun
 
 def load_pages(corpus=CORPUS):
     """One Document per PDF page, with metadata {source, page}."""
-    # Imported here so that serving, which reads the chunk file, doesn't need the PDF loader.
-    from langchain_community.document_loaders import PyPDFLoader
+    # Imported here so that serving, which reads the chunk file, doesn't need the PDF library.
+    from pypdf import PdfReader
 
     pages = []
     for path in sorted(Path(corpus).glob("*.pdf")):
-        for doc in PyPDFLoader(str(path)).load():
-            # PyPDFLoader counts pages from 0; the golden set uses the 1-based file page index.
-            # Convert here and nowhere else. Never use metadata["page_label"] (the printed number).
-            page = doc.metadata["page"] + 1
-            pages.append(Document(page_content=doc.page_content, metadata={"source": path.name, "page": page}))
+        # Counted from 1: the golden set uses the 1-based file page index, not the printed page number.
+        for page, pdf_page in enumerate(PdfReader(str(path)).pages, 1):
+            # strip() as the old PyPDFLoader did, so the chunks match the Pinecone index exactly.
+            text = pdf_page.extract_text().strip()
+            pages.append(Document(page_content=text, metadata={"source": path.name, "page": page}))
     return pages
 
 
