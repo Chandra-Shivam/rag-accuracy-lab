@@ -2,7 +2,9 @@
 
 from langchain_core.documents import Document
 
-from rag.ingest import chunk_pages, clean_page, load_pages
+import pytest
+
+from rag.ingest import chunk_pages, clean_page, load_chunks, load_pages, save_chunks
 from pathlib import Path
 
 
@@ -70,3 +72,15 @@ def test_cleaning_after_only_changes_chunks_touching_the_header():
     assert cleaned[-2:] == plain[-2:]
     assert cleaned[0] == ""
     assert "".join(cleaned) == "x" * 25
+
+
+def test_saved_chunks_load_back_the_same(tmp_path):
+    chunks = chunk_pages([page("abcdefghijklmnopqrstuvwxy")], size=10)
+    save_chunks(chunks, tmp_path / "chunks.jsonl")
+    loaded = load_chunks(tmp_path / "chunks.jsonl")
+    assert [(c.id, c.page_content, c.metadata) for c in loaded] == [(c.id, c.page_content, c.metadata) for c in chunks]
+
+
+def test_missing_chunk_file_says_how_to_make_it(tmp_path):
+    with pytest.raises(FileNotFoundError, match="rag.ingest --save"):
+        load_chunks(tmp_path / "chunks.jsonl")

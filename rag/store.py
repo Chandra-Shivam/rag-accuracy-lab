@@ -1,6 +1,7 @@
 """INDEXING, fourth box of MAP.md: store vectors + metadata in Pinecone.
 
-Usage: python -m rag.store               (creates the bge index if needed, upserts every chunk, prints the vector count)
+Usage: python -m rag.store               (writes the chunk file, creates the bge index if needed, upserts every chunk,
+                                          and checks the vector count against the chunk count)
        EMBEDDER=gemini python -m rag.store    (same, for the Gemini index; a stopped run continues from the cache)
 Needs PINECONE_API_KEY in .env, and GOOGLE_API_KEY for Gemini.
 """
@@ -45,13 +46,19 @@ def upsert_chunks(store, chunks):
 
 
 if __name__ == "__main__":
-    from rag.ingest import chunk_pages, load_pages
+    from rag.ingest import CHUNKS_FILE, chunk_pages, load_pages, save_chunks
 
     chunks = chunk_pages(load_pages())
+    # Written from the same chunks as the upsert, so BM25 and Pinecone always search the same chunks.
+    save_chunks(chunks)
+    print(f"saved {len(chunks)} chunks to {CHUNKS_FILE}")
     store = get_store()
     start = time.perf_counter()
     upsert_chunks(store, chunks)
     print(f"upserted {len(chunks)} chunks in {time.perf_counter() - start:.1f}s")
     # Pinecone counts are eventually consistent; give the stats a moment to catch up.
     time.sleep(10)
-    print(store.index.describe_index_stats())
+    stats = store.index.describe_index_stats()
+    print(stats)
+    if stats.total_vector_count != len(chunks):
+        print(f"WARNING: the index has {stats.total_vector_count} vectors but the chunk file has {len(chunks)}")

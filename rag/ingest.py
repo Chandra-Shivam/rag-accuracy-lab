@@ -1,25 +1,34 @@
 """INDEXING, first two boxes of MAP.md: load pages -> chunk (naive v0).
 
-Usage: python -m rag.ingest   (prints corpus and chunk counts)
+Usage: python -m rag.ingest          (prints corpus and chunk counts)
+       python -m rag.ingest --save   (same, and writes the chunk file without re-indexing Pinecone)
        CLEAN=before python -m rag.store    (indexes chunks cut after removing the print-proof header)
        CLEAN=after python -m rag.store     (same cuts as today, with the header removed from the chunks)
 """
+import json
 import os
 import re
+import sys
 from pathlib import Path
 
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 
-CORPUS = Path(__file__).resolve().parent.parent / "corpus"
+ROOT = Path(__file__).resolve().parent.parent
+CORPUS = ROOT / "corpus"
 CHUNK_SIZE = 1000  # characters; v0 has no overlap and no structure awareness
 # IRS print-proof text: "Userid: ..." on first pages, "Page N of M  Fileid: ..." on the rest (mid-page in p509).
 PROOF_HEADER = re.compile(r"(?:Userid: |Page \d+ of \d+\s+Fileid: ).*?MUST be removed before printing\.\s*", re.DOTALL)
 CLEAN = os.environ.get("CLEAN")  # None, "before" or "after": when the header is removed, relative to cutting
+# Written with the Pinecone index and read by BM25 at startup, so serving needs no PDFs.
+# Different chunks get their own file, as they get their own index.
+CHUNKS_FILE = ROOT / "data" / (f"chunks-clean-{CLEAN}.jsonl" if CLEAN else "chunks.jsonl")
 
 
 def load_pages(corpus=CORPUS):
     """One Document per PDF page, with metadata {source, page}."""
+    # Imported here so that serving, which reads the chunk file, doesn't need the PDF loader.
+    from langchain_community.document_loaders import PyPDFLoader
+
     pages = []
     for path in sorted(Path(corpus).glob("*.pdf")):
         for doc in PyPDFLoader(str(path)).load():
@@ -62,9 +71,26 @@ def chunk_pages(pages, size=CHUNK_SIZE, clean=CLEAN):
     return chunks
 
 
+def save_chunks(chunks, path=CHUNKS_FILE):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps({"id": c.id, "text": c.page_content, "metadata": c.metadata}) + "\n"
+                            for c in chunks))
+
+
+def load_chunks(path=CHUNKS_FILE):
+    # No fallback to the PDFs: a quiet rebuild could hide chunks that no longer match the Pinecone index.
+    if not path.exists():
+        raise FileNotFoundError(f"no chunk file at {path}: run python -m rag.ingest --save")
+    return [Document(id=row["id"], page_content=row["text"], metadata=row["metadata"])
+            for row in map(json.loads, path.read_text().splitlines())]
+
+
 if __name__ == "__main__":
     pages = load_pages()
     chunks = chunk_pages(pages)
     empty = [f"{p.metadata['source']}:{p.metadata['page']}" for p in pages if not p.page_content.strip()]
     print(f"{len(pages)} pages, {len(chunks)} chunks, {len(empty)} empty pages {empty}")
     print(f"page numbers range {min(p.metadata['page'] for p in pages)}..{max(p.metadata['page'] for p in pages)}")
+    if "--save" in sys.argv:
+        save_chunks(chunks)
+        print(f"saved {len(chunks)} chunks to {CHUNKS_FILE}")
