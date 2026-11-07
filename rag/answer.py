@@ -6,18 +6,21 @@ The prompt has grounding and citation rules (Day 5). The code checks the citatio
 Usage: python -m rag.answer "your question"
 Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
 """
+import hashlib
+import os
 import sys
 import time
 
 from dotenv import load_dotenv
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langsmith import get_current_run_tree, traceable
 
-from rag.citations import check_citations
+from rag.citations import check_citations, citations_ok
 from rag.hybrid import fuse, get_index as get_keyword_index, keyword_search
 from rag.neighbours import SEPARATOR, join_chunks, label, neighbour_ids
 from rag.rerank import get_model as get_reranker, rerank
-from rag.store import get_store
+from rag.store import EMBEDDER, get_store
 
 LLM_MODEL = "gemini-3.5-flash-lite"
 # Free tier allows 15 requests per minute per model; stay under it at 12.
@@ -41,6 +44,15 @@ Context:
 {context}
 
 Question: {question}"""
+# Added to every trace, so traces can be filtered in LangSmith (for example, before and after a change).
+# The prompt hash changes by itself when PROMPT changes. APP_ENV and GIT_COMMIT come from the Dockerfile or docker run.
+TRACE_METADATA = {
+    "env": os.environ.get("APP_ENV", "local"),
+    "commit": os.environ.get("GIT_COMMIT", "local"),
+    "model": LLM_MODEL,
+    "prompt": hashlib.sha256(PROMPT.encode()).hexdigest()[:8],
+    "retrieval": f"{EMBEDDER}, hybrid={HYBRID_N}, candidates={CANDIDATES}, k={K}, window={WINDOW}",
+}
 
 _store = _llm = None
 
@@ -48,6 +60,15 @@ _store = _llm = None
 def is_refusal(text):
     """True only for the exact refusal. A refusal with other claims in it is still an answer to check."""
     return text.strip() == REFUSAL
+
+
+def _tag_outcome(text, citations):
+    """Adds per-question flags to the current trace, so refusals and bad citations can be filtered."""
+    run = get_current_run_tree()
+    if run:
+        # Starts with the refusal, not equals it: a refusal that explains what is missing (like q39) counts too.
+        run.add_metadata({"refused": text.strip().startswith(REFUSAL.rstrip(".")),
+                          "citations_ok": citations_ok(citations)})
 
 
 def _get_store():
@@ -69,6 +90,7 @@ def _get_llm():
     return _llm
 
 
+@traceable(run_type="retriever")
 def retrieve(question, k=K, candidates=CANDIDATES, window=WINDOW, hybrid=HYBRID_N):
     """Search, optional hybrid, re-rank and neighbours, no LLM. Returns (context text for the prompt, sources)."""
     if candidates:
@@ -106,6 +128,7 @@ def _ready():
     return llm
 
 
+@traceable(name="answer", metadata=TRACE_METADATA)
 def answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
     llm = _ready()
     start = time.perf_counter()
@@ -113,12 +136,28 @@ def answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
     retrieval_latency = time.perf_counter() - start
     reply = llm.invoke(PROMPT.format(refusal=REFUSAL, context=context, question=question))
     latency = time.perf_counter() - start
+    citations = check_citations(reply.text, context)
+    _tag_outcome(reply.text, citations)
     # context = the exact text the model saw; the faithfulness judge checks the answer against it.
-    return {"answer": reply.text, "citations": check_citations(reply.text, context),
+    return {"answer": reply.text, "citations": citations,
             "sources": sources, "context": context, "latency": round(latency, 3),
             "retrieval_latency": round(retrieval_latency, 3), "tokens": reply.usage_metadata["total_tokens"]}
 
 
+def _collect_stream(events):
+    """Turns the yielded events into one trace output; otherwise every token is logged as its own item."""
+    output = {"answer": ""}
+    for event, data in events:
+        if event == "token":
+            output["answer"] += data
+        elif event == "sources":
+            output["sources"] = data
+        else:
+            output.update(data)
+    return output
+
+
+@traceable(name="stream_answer", metadata=TRACE_METADATA, reduce_fn=_collect_stream)
 def stream_answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
     """Same steps as answer(), but yields (event, data) as they happen: sources, tokens, then done."""
     llm = _ready()
@@ -130,7 +169,9 @@ def stream_answer(question, k=K, candidates=CANDIDATES, hybrid=HYBRID_N):
             text += chunk.text
             yield "token", chunk.text
     # The check needs the whole answer, so citations can only come last.
-    yield "done", {"citations": check_citations(text, context)}
+    citations = check_citations(text, context)
+    _tag_outcome(text, citations)
+    yield "done", {"citations": citations}
 
 
 if __name__ == "__main__":

@@ -8,7 +8,15 @@ Needs GOOGLE_API_KEY and PINECONE_API_KEY in .env.
 """
 
 import json
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Before anything traces: langsmith reads its settings once and caches them.
+load_dotenv()
+# API traces go to their own project; evals keep using the default one. A value passed with docker -e wins.
+os.environ.setdefault("LANGSMITH_PROJECT", "irs-rag-api")
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, StreamingResponse

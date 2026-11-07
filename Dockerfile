@@ -23,6 +23,12 @@ COPY static/ static/
 COPY data/chunks.jsonl data/
 COPY corpus/SOURCES.md corpus/download.py corpus/
 
+# Trace metadata. Late in the file, so a new commit rebuilds only the layers below.
+# Build: docker build --build-arg GIT_COMMIT=$(git rev-parse --short HEAD) -t rag-api:<version> .
+# Run: docker run -e APP_ENV=uat ... (defaults to docker)
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=$GIT_COMMIT APP_ENV=docker
+
 # 9-11. Run
 EXPOSE 8000
 CMD ["uvicorn", "api:api", "--host", "0.0.0.0", "--port", "8000"]

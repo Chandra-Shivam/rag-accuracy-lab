@@ -33,3 +33,21 @@ def test_stream_sends_sources_then_tokens_then_citations(monkeypatch):
     # The empty piece is skipped.
     assert events[1:-1] == [("token", "The limit "), ("token", "is $6,000 "), ("token", "[a.pdf, page 1].")]
     assert events[-1] == ("done", {"citations": {"valid": ["a.pdf, page 1"], "invalid": []}})
+
+
+def test_collect_stream_joins_tokens_into_one_answer():
+    sources = [{"source": "a.pdf", "page": 1}]
+    events = [("sources", sources), ("token", "The limit "), ("token", "is $6,000."), ("done", {"citations": {}})]
+    assert rag.answer._collect_stream(events) == {"answer": "The limit is $6,000.", "sources": sources, "citations": {}}
+
+
+def test_tag_outcome_flags_refusals_that_explain_what_is_missing(monkeypatch):
+    run = SimpleNamespace(metadata={}, add_metadata=lambda m: run.metadata.update(m))
+    monkeypatch.setattr(rag.answer, "get_current_run_tree", lambda: run)
+    no_citations = {"valid": [], "invalid": []}
+
+    rag.answer._tag_outcome(REFUSAL.rstrip(".") + ", because the context only covers employers.", no_citations)
+    assert run.metadata == {"refused": True, "citations_ok": False}
+
+    rag.answer._tag_outcome("The limit is $6,000 [a.pdf, page 1].", {"valid": ["a.pdf, page 1"], "invalid": []})
+    assert run.metadata == {"refused": False, "citations_ok": True}
