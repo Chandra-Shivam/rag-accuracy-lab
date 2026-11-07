@@ -1,0 +1,10 @@
+# Keep secrets, local environments and large files out of the build.
+.env
+.venv/
+.git/
+.claude/
+__pycache__/
+.pytest_cache/
+data/cache/
+corpus/*.pdf
+evals/results/
