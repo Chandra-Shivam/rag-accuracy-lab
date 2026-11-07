@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>IRS payroll help</title>
+  </head>
+  <body>
+    <input id="question" size="80" />
+    <button id="ask">Ask</button>
+    <div id="answer" style="white-space: pre-wrap"></div>
+    <div id="sources"></div>
+    <script>
+      document.getElementById("ask").addEventListener("click", async () => {
+        const question = document.getElementById("question").value;
+        const answer = document.getElementById("answer");
+        answer.textContent = "";
+        const sourcesDiv = document.getElementById("sources");
+        sourcesDiv.textContent = "";
+        const response = await fetch("/ask/stream", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ question }),
+        });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let sources = [];
+        let citations = null;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value, { stream: true });
+          buffer += text;
+          const blocks = buffer.split("\n\n");
+          buffer = blocks.pop();
+          for (const block of blocks) {
+            const [eventLine, dataLine] = block.split("\n");
+            const name = eventLine.slice("event: ".length);
+            const data = JSON.parse(dataLine.slice("data: ".length));
+            if (name === "sources") {
+              sources = data;
+            } else if (name === "done") {
+              citations = data.citations;
+              const shown = new Set();
+              for (const source of sources) {
+                const label = source.source + ", page " + source.page;
+                if (!citations.valid.includes(label) || shown.has(label)) {
+                  continue;
+                }
+                shown.add(label);
+                const link = document.createElement("a");
+                link.href = source.url;
+                link.target = "_blank";
+                link.textContent = label;
+                sourcesDiv.appendChild(link);
+                sourcesDiv.appendChild(document.createElement("br"));
+              }
+            } else if (name === "token") {
+              answer.textContent += data;
+            }
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

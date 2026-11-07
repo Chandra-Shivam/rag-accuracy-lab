@@ -140,6 +140,9 @@ Quick reference for the flow, the files and answers to past doubts. Keep each en
 - **`stream_answer()`:** in `rag/answer.py`, same steps as `answer()` but yields `("sources", ...)`, then `("token", ...)` pieces, then `("done", {"citations": ...})`. Citations come last because the check needs the whole answer. `_ready()` holds the shared set-up.
 - **Streaming pieces:** Gemini sends a few words per piece, not one token, so `token` events hold phrases. Normal for LLM streaming.
 - **Wording changes retrieval:** "I'm 65" and "I am 65" gave different top-5 chunks for q21, though both answers were right.
+- **Chat UI split:** Python (`api.py`) only serves the page at `GET /` and streams at `POST /ask/stream`. `fetch()` and `response.body.getReader()` are JavaScript, in the `<script>` of `static/index.html`, and run in the browser. `EventSource` can't be used because it only sends GET.
+- **Parsing SSE in the page:** network chunks don't line up with events, so the page keeps a `buffer`, splits it at `\n\n`, and puts the last (maybe incomplete) piece back with `pop()`. Each complete block is `event: name` + `data: json`.
+- **Source links:** `api.py` `with_urls()` adds `url` (IRS link + `#page=N`) to each source, using the URLs in `corpus/SOURCES.md`. Done in the API only, so eval runs and saved results don't change.
 - **Gemini 503 in a full run:** high demand on Google's side. Re-running the same `--run` command continues from the saved questions.
 - **`rag/rerank.py`:** re-scores Pinecone's top chunks with a local cross-encoder and keeps the best k. `score_pairs` is an optional scorer so tests can skip the model. `run.py --retrieval-only --candidates N` tests it without Gemini; 0 turns it off.
 - **v1 re-ranking:** Hit@5 0.795 to 0.897, Correct 0.769 to 0.846. It can also hurt: q24 lost the chunk with the 6.0% rate. Most of the latency rise was Gemini time, not the re-ranker.
