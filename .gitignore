@@ -4,3 +4,9 @@ __pycache__/
 .pytest_cache/
 data/cache/
 corpus/*.pdf
+demo/out/
+
+# Personal Claude Code setup, kept on this machine only
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/output-styles/
