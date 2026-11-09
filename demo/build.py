@@ -4,6 +4,7 @@ Usage: python -m demo.build               (full walkthrough -> demo/out/demo-<da
        python -m demo.build --short       (2-minute cut -> demo/out/demo-short-<date>-<time>.mp4)
        python -m demo.build --only s08    (one scene -> demo/out/scenes/s08.mp4, for checking)
        python -m demo.build --resume      (same as the first, but keeps scenes already recorded)
+       python -m demo.build --resume --no-code --small    (without code scenes, plus a copy under 10 MB for GitHub)
 Needs ffmpeg, Playwright with Chromium (pip install -r demo/requirements.txt; python -m playwright install chromium),
 and GOOGLE_API_KEY and PINECONE_API_KEY in .env. Live scenes make one Gemini call each; voice clips are cached.
 """
@@ -89,13 +90,34 @@ def join(parts, out):
     listing.unlink()
 
 
+def shrink(src, out, limit_mb=9.3):
+    """Re-encodes to fit GitHub's 10 MB limit for videos that play on the page.
+
+    The bitrate is worked out from the length, and two passes make the size land on target.
+    15 frames a second is enough for slides and gives each frame more detail, so text stays sharp.
+    """
+    audio_kbps = 64
+    video_kbps = int(limit_mb * 8000 / duration(src) - audio_kbps)
+    common = ["-vf", "fps=15", "-c:v", "libx264", "-preset", "slow", "-b:v", f"{video_kbps}k", "-pix_fmt", "yuv420p",
+              "-passlogfile", str(OUT / "x264-pass")]
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), *common, "-pass", "1", "-an", "-f", "mp4",
+                    os.devnull], check=True)
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), *common, "-pass", "2",
+                    "-c:a", "aac", "-b:a", f"{audio_kbps}k", "-ac", "1", str(out)], check=True)
+    for log in OUT.glob("x264-pass*"):
+        log.unlink()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build the demo video.")
     parser.add_argument("--short", action="store_true", help="only the scenes marked short")
     parser.add_argument("--only", help="one scene id, e.g. s08")
     parser.add_argument("--resume", action="store_true", help="reuse scenes already in demo/out/scenes")
+    parser.add_argument("--no-code", action="store_true", help="leave out the code scenes (the code is in the repo)")
+    parser.add_argument("--small", action="store_true", help="also write a copy under GitHub's 10 MB limit")
     args = parser.parse_args()
-    scenes = [s for s in SCENES if (not args.short or s.short) and (not args.only or s.id == args.only)]
+    scenes = [s for s in SCENES if (not args.short or s.short) and (not args.only or s.id == args.only)
+              and (not args.no_code or s.kind != "code")]
     if not scenes:
         sys.exit(f"no scene with id {args.only!r}")
 
@@ -139,9 +161,14 @@ def main():
         print(f"done: {parts[0]}  ({total:.0f} s)")
         return
     # A new name per build: a player that cached an older file under the same name can mix old audio into it.
-    out = OUT / f"{'demo-short' if args.short else 'demo'}-{time.strftime('%Y%m%d-%H%M')}.mp4"
+    name = "demo-short" if args.short else "demo-overview" if args.no_code else "demo"
+    out = OUT / f"{name}-{time.strftime('%Y%m%d-%H%M')}.mp4"
     join(parts, out)
-    print(f"done: {out}  ({total / 60:.1f} min)")
+    print(f"done: {out}  ({total / 60:.1f} min, {out.stat().st_size / 1e6:.1f} MB)")
+    if args.small:
+        small = out.with_name(f"{out.stem}-small.mp4")
+        shrink(out, small)
+        print(f"done: {small}  ({small.stat().st_size / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":
