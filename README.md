@@ -1,10 +1,10 @@
 # RAG Accuracy Lab
 
+A "chat with your documents" assistant for US payroll questions, built to answer one question: **how wrong is a typical RAG chatbot, and which fixes actually help?**
 
 https://github.com/user-attachments/assets/75d9457b-54d9-4fa5-ab2e-9f78d41214dc
 
-
-A "chat with your documents" assistant for US payroll questions, built to answer one question: **how wrong is a typical RAG chatbot, and which fixes actually help?**
+*4.8-minute overview: the app answering live, the results, and how they were measured.*
 
 I built a naive version, measured it on 50 hand-written questions, then improved it one change at a time and re-measured after every change, including the changes that made it worse.
 
