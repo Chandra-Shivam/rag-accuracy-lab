@@ -20,7 +20,7 @@ def good_run():
 
 
 def test_good_run_passes():
-    assert gate(GOLDEN, good_run(), MINIMUMS) == ["x"]
+    assert gate(GOLDEN, good_run(), MINIMUMS) == []
 
 
 def test_low_score_fails():
